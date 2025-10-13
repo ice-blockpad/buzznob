@@ -12,7 +12,8 @@ router.get('/trending', optionalAuth, async (req, res) => {
 
     const articles = await prisma.article.findMany({
       where: {
-        isFeatured: true
+        isFeatured: true,
+        status: 'published' // Only show published articles
       },
       orderBy: { createdAt: 'desc' },
       take: limit,
@@ -57,7 +58,9 @@ router.get('/', optionalAuth, async (req, res) => {
     const featured = req.query.featured === 'true';
     const skip = (page - 1) * limit;
 
-    const where = {};
+    const where = {
+      status: 'published' // Only show published articles to public
+    };
     if (category) where.category = category;
     if (featured) where.isFeatured = true;
 
@@ -113,8 +116,11 @@ router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const article = await prisma.article.findUnique({
-      where: { id },
+    const article = await prisma.article.findFirst({
+      where: { 
+        id,
+        status: 'published' // Only allow access to published articles
+      },
       select: {
         id: true,
         title: true,
@@ -162,9 +168,12 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
     const { readDuration } = req.body; // in seconds
     const userId = req.user.id;
 
-    // Check if article exists
-    const article = await prisma.article.findUnique({
-      where: { id }
+    // Check if article exists and is published
+    const article = await prisma.article.findFirst({
+      where: { 
+        id,
+        status: 'published' // Only allow reading published articles
+      }
     });
 
     if (!article) {
@@ -243,6 +252,7 @@ router.get('/trending', optionalAuth, async (req, res) => {
 
     const trendingArticles = await prisma.article.findMany({
       where: {
+        status: 'published', // Only show published articles
         createdAt: {
           gte: sevenDaysAgo
         }
@@ -300,7 +310,7 @@ router.get('/trending', optionalAuth, async (req, res) => {
 });
 
 // Search articles
-router.get('/search/search', optionalAuth, async (req, res) => {
+router.get('/search', optionalAuth, async (req, res) => {
   try {
     const { q: query, category } = req.query;
     const page = parseInt(req.query.page) || 1;
@@ -316,6 +326,7 @@ router.get('/search/search', optionalAuth, async (req, res) => {
     }
 
     const where = {
+      status: 'published', // Only search published articles
       OR: [
         { title: { contains: query, mode: 'insensitive' } },
         { content: { contains: query, mode: 'insensitive' } }

@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Backend API for Buzznob mobile app",
   "main": "src/server.js",
+  "prisma": {
+    "schema": "prisma/schema.prisma"
+  },
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
