@@ -8,7 +8,7 @@ const router = express.Router();
 // Get trending articles
 router.get('/trending', optionalAuth, async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 3;
+    const limit = parseInt(req.query.limit) || 10;
 
     const articles = await prisma.article.findMany({
       where: {
