@@ -992,10 +992,7 @@ router.get('/articles/review-history', authenticateToken, requireAdmin, async (r
           }
         ]
       },
-      orderBy: [
-        { reviewedAt: 'desc' },
-        { publishedAt: 'desc' }
-      ],
+      orderBy: { createdAt: 'desc' },
       skip,
       take: limit,
       include: {
@@ -1047,6 +1044,7 @@ router.get('/articles/review-history', authenticateToken, requireAdmin, async (r
         articleTitle: article.title,
         action: article.status === 'published' ? 'approved' : article.status,
         reviewedAt: article.reviewedAt || article.publishedAt || article.createdAt,
+        sortDate: article.reviewedAt || article.publishedAt || article.createdAt,
         reviewerName: isCreatedByAdmin ? 'Self (Created)' : (article.reviewer?.displayName || article.reviewer?.username || 'Admin'),
         comments: article.rejectionReason || (article.status === 'approved' || article.status === 'published' ? 
           (isCreatedByAdmin ? 'Article created and published directly' : 'Article approved for publication') : 'No comments'),
