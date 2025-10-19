@@ -974,15 +974,28 @@ router.get('/articles/review-history', authenticateToken, requireAdmin, async (r
     const skip = (page - 1) * limit;
     const userId = req.user.id;
 
-    // Get articles that have been reviewed by this admin
+    // Get articles that have been reviewed by this admin OR created by this admin
     const reviewedArticles = await prisma.article.findMany({
       where: {
-        reviewedBy: userId,
-        status: {
-          in: ['approved', 'rejected', 'published']
-        }
+        OR: [
+          {
+            reviewedBy: userId,
+            status: {
+              in: ['approved', 'rejected', 'published']
+            }
+          },
+          {
+            authorId: userId,
+            status: {
+              in: ['published']
+            }
+          }
+        ]
       },
-      orderBy: { reviewedAt: 'desc' },
+      orderBy: [
+        { reviewedAt: 'desc' },
+        { publishedAt: 'desc' }
+      ],
       skip,
       take: limit,
       include: {
@@ -1006,26 +1019,42 @@ router.get('/articles/review-history', authenticateToken, requireAdmin, async (r
 
     const totalCount = await prisma.article.count({
       where: {
-        reviewedBy: userId,
-        status: {
-          in: ['approved', 'rejected', 'published']
-        }
+        OR: [
+          {
+            reviewedBy: userId,
+            status: {
+              in: ['approved', 'rejected', 'published']
+            }
+          },
+          {
+            authorId: userId,
+            status: {
+              in: ['published']
+            }
+          }
+        ]
       }
     });
 
     // Transform data for frontend
-    const reviewHistory = reviewedArticles.map(article => ({
-      id: article.id,
-      articleId: article.id,
-      articleTitle: article.title,
-      action: article.status === 'published' ? 'approved' : article.status,
-      reviewedAt: article.reviewedAt,
-      reviewerName: article.reviewer?.displayName || article.reviewer?.username || 'Admin',
-      comments: article.rejectionReason || (article.status === 'approved' || article.status === 'published' ? 'Article approved for publication' : 'No comments'),
-      authorName: article.author?.displayName || article.author?.username || 'Unknown',
-      category: article.category,
-      createdAt: article.createdAt
-    }));
+    const reviewHistory = reviewedArticles.map(article => {
+      const isCreatedByAdmin = article.authorId === userId;
+      const isReviewedByAdmin = article.reviewedBy === userId;
+      
+      return {
+        id: article.id,
+        articleId: article.id,
+        articleTitle: article.title,
+        action: article.status === 'published' ? 'approved' : article.status,
+        reviewedAt: article.reviewedAt || article.publishedAt || article.createdAt,
+        reviewerName: isCreatedByAdmin ? 'Self (Created)' : (article.reviewer?.displayName || article.reviewer?.username || 'Admin'),
+        comments: article.rejectionReason || (article.status === 'approved' || article.status === 'published' ? 
+          (isCreatedByAdmin ? 'Article created and published directly' : 'Article approved for publication') : 'No comments'),
+        authorName: article.author?.displayName || article.author?.username || 'Unknown',
+        category: article.category,
+        createdAt: article.createdAt
+      };
+    });
 
     res.json({
       success: true,
