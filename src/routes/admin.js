@@ -253,14 +253,9 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
     // Get total articles
     const totalArticles = await prisma.article.count();
     
-    // Pending reviews - in this system, all articles are published directly
-    // But we can count articles created in last 24h for review tracking
+    // Pending reviews: count articles awaiting review
     const pendingReviews = await prisma.article.count({
-      where: {
-        createdAt: {
-          gte: oneDayAgo
-        }
-      }
+      where: { status: 'pending' }
     });
 
     res.json({
@@ -967,6 +962,90 @@ router.patch('/articles/:id/reject', authenticateToken, requireAdmin, async (req
       success: false,
       error: 'ARTICLE_REJECT_ERROR',
       message: 'Failed to reject article'
+    });
+  }
+});
+
+// Get review history (admin only)
+router.get('/articles/review-history', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+    const userId = req.user.id;
+
+    // Get articles that have been reviewed by this admin
+    const reviewedArticles = await prisma.article.findMany({
+      where: {
+        reviewedBy: userId,
+        status: {
+          in: ['approved', 'rejected', 'published']
+        }
+      },
+      orderBy: { reviewedAt: 'desc' },
+      skip,
+      take: limit,
+      include: {
+        author: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            email: true
+          }
+        },
+        reviewer: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true
+          }
+        }
+      }
+    });
+
+    const totalCount = await prisma.article.count({
+      where: {
+        reviewedBy: userId,
+        status: {
+          in: ['approved', 'rejected', 'published']
+        }
+      }
+    });
+
+    // Transform data for frontend
+    const reviewHistory = reviewedArticles.map(article => ({
+      id: article.id,
+      articleId: article.id,
+      articleTitle: article.title,
+      action: article.status === 'published' ? 'approved' : article.status,
+      reviewedAt: article.reviewedAt,
+      reviewerName: article.reviewer?.displayName || article.reviewer?.username || 'Admin',
+      comments: article.rejectionReason || (article.status === 'approved' || article.status === 'published' ? 'Article approved for publication' : 'No comments'),
+      authorName: article.author?.displayName || article.author?.username || 'Unknown',
+      category: article.category,
+      createdAt: article.createdAt
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        reviewHistory,
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          pages: Math.ceil(totalCount / limit)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get review history error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'REVIEW_HISTORY_ERROR',
+      message: 'Failed to fetch review history'
     });
   }
 });
