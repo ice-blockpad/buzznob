@@ -992,7 +992,7 @@ router.get('/articles/review-history', authenticateToken, requireAdmin, async (r
           }
         ]
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { reviewedAt: 'desc' },
       skip,
       take: limit,
       include: {
