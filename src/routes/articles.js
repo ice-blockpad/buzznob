@@ -125,6 +125,88 @@ router.get('/', optionalAuth, async (req, res) => {
   }
 });
 
+// Search articles
+router.get('/search', optionalAuth, async (req, res) => {
+  try {
+    const { q: query, category } = req.query;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        error: 'SEARCH_QUERY_REQUIRED',
+        message: 'Search query is required'
+      });
+    }
+
+    const where = {
+      status: 'published', // Only search published articles
+      OR: [
+        { title: { contains: query, mode: 'insensitive' } },
+        { content: { contains: query, mode: 'insensitive' } }
+      ]
+    };
+
+    if (category) {
+      where.category = category;
+    }
+
+    const articles = await prisma.article.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        category: true,
+        sourceUrl: true,
+        sourceName: true,
+        pointsValue: true,
+        readTimeEstimate: true,
+        isFeatured: true,
+        imageUrl: true,
+        imageData: true,
+        imageType: true,
+        createdAt: true,
+        author: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true
+          }
+        }
+      }
+    });
+
+    const totalCount = await prisma.article.count({ where });
+
+    res.json({
+      success: true,
+      data: {
+        articles,
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          pages: Math.ceil(totalCount / limit)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Search articles error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'SEARCH_ERROR',
+      message: 'Failed to search articles'
+    });
+  }
+});
+
 // Get single article
 router.get('/:id', optionalAuth, async (req, res) => {
   try {
@@ -319,81 +401,6 @@ router.get('/trending', optionalAuth, async (req, res) => {
       success: false,
       error: 'TRENDING_ARTICLES_ERROR',
       message: 'Failed to fetch trending articles'
-    });
-  }
-});
-
-// Search articles
-router.get('/search', optionalAuth, async (req, res) => {
-  try {
-    const { q: query, category } = req.query;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
-
-    if (!query) {
-      return res.status(400).json({
-        success: false,
-        error: 'SEARCH_QUERY_REQUIRED',
-        message: 'Search query is required'
-      });
-    }
-
-    const where = {
-      status: 'published', // Only search published articles
-      OR: [
-        { title: { contains: query, mode: 'insensitive' } },
-        { content: { contains: query, mode: 'insensitive' } }
-      ]
-    };
-
-    if (category) {
-      where.category = category;
-    }
-
-    const articles = await prisma.article.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit,
-      select: {
-        id: true,
-        title: true,
-        content: true,
-        category: true,
-        sourceUrl: true,
-        sourceName: true,
-        pointsValue: true,
-        readTimeEstimate: true,
-        isFeatured: true,
-        imageUrl: true,
-        imageData: true,
-        imageType: true,
-        createdAt: true
-      }
-    });
-
-    const totalCount = await prisma.article.count({ where });
-
-    res.json({
-      success: true,
-      data: {
-        articles,
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          pages: Math.ceil(totalCount / limit)
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Search articles error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'SEARCH_ERROR',
-      message: 'Failed to search articles'
     });
   }
 });
