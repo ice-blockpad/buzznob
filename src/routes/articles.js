@@ -30,7 +30,14 @@ router.get('/trending', optionalAuth, async (req, res) => {
         imageUrl: true,
         imageData: true,
         imageType: true,
-        createdAt: true
+        createdAt: true,
+        author: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true
+          }
+        }
       }
     });
 
@@ -82,7 +89,14 @@ router.get('/', optionalAuth, async (req, res) => {
         imageUrl: true,
         imageData: true,
         imageType: true,
-        createdAt: true
+        createdAt: true,
+        author: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true
+          }
+        }
       }
     });
 
