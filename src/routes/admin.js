@@ -974,23 +974,15 @@ router.get('/articles/review-history', authenticateToken, requireAdmin, async (r
     const skip = (page - 1) * limit;
     const userId = req.user.id;
 
-    // Get articles that have been reviewed by this admin OR created by this admin
+    // Get all articles that have been reviewed by any admin
     const reviewedArticles = await prisma.article.findMany({
       where: {
-        OR: [
-          {
-            reviewedBy: userId,
-            status: {
-              in: ['approved', 'rejected', 'published']
-            }
-          },
-          {
-            authorId: userId,
-            status: {
-              in: ['published']
-            }
-          }
-        ]
+        status: {
+          in: ['approved', 'rejected', 'published']
+        },
+        reviewedBy: {
+          not: null
+        }
       },
       orderBy: { reviewedAt: 'desc' },
       skip,
@@ -1016,20 +1008,12 @@ router.get('/articles/review-history', authenticateToken, requireAdmin, async (r
 
     const totalCount = await prisma.article.count({
       where: {
-        OR: [
-          {
-            reviewedBy: userId,
-            status: {
-              in: ['approved', 'rejected', 'published']
-            }
-          },
-          {
-            authorId: userId,
-            status: {
-              in: ['published']
-            }
-          }
-        ]
+        status: {
+          in: ['approved', 'rejected', 'published']
+        },
+        reviewedBy: {
+          not: null
+        }
       }
     });
 
