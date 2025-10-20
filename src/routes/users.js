@@ -713,6 +713,8 @@ router.get('/:userId/articles', async (req, res) => {
         readTimeEstimate: true,
         isFeatured: true,
         imageUrl: true,
+        imageData: true,
+        imageType: true,
         createdAt: true,
         publishedAt: true,
         status: true,
