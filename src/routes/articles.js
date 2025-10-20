@@ -207,6 +207,88 @@ router.get('/search', optionalAuth, async (req, res) => {
   }
 });
 
+// Get articles by creator
+router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
+  try {
+    const { creatorId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    // Verify creator exists
+    const creator = await prisma.user.findUnique({
+      where: { id: creatorId },
+      select: { id: true, username: true, displayName: true, firstName: true, lastName: true }
+    });
+
+    if (!creator) {
+      return res.status(404).json({
+        success: false,
+        error: 'CREATOR_NOT_FOUND',
+        message: 'Creator not found'
+      });
+    }
+
+    // Get articles by creator
+    const articles = await prisma.article.findMany({
+      where: {
+        authorId: creatorId,
+        status: 'published' // Only show published articles
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: offset,
+      take: limit,
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        excerpt: true,
+        category: true,
+        sourceUrl: true,
+        sourceName: true,
+        pointsValue: true,
+        readTimeEstimate: true,
+        isFeatured: true,
+        imageUrl: true,
+        imageData: true,
+        imageType: true,
+        status: true,
+        createdAt: true,
+        publishedAt: true
+      }
+    });
+
+    // Get total count for pagination
+    const totalCount = await prisma.article.count({
+      where: {
+        authorId: creatorId,
+        status: 'published'
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        articles,
+        pagination: {
+          page,
+          limit,
+          total: totalCount,
+          totalPages: Math.ceil(totalCount / limit)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get articles by creator error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'GET_CREATOR_ARTICLES_ERROR',
+      message: 'Failed to get creator articles'
+    });
+  }
+});
+
 // Get single article
 router.get('/:id', optionalAuth, async (req, res) => {
   try {
