@@ -376,7 +376,7 @@ router.delete('/account', authenticateToken, async (req, res) => {
   }
 });
 
-// Get creators list (for social features)
+ // Get creators list (for social features)
 router.get('/creators', authenticateToken, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -655,6 +655,94 @@ router.get('/:userId/public-profile', authenticateToken, async (req, res) => {
       success: false,
       error: 'PROFILE_FETCH_ERROR',
       message: 'Failed to fetch user profile'
+    });
+  }
+});
+
+// Get a user's published articles (public view)
+router.get('/:userId/articles', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50; // 50 articles per page
+    const search = req.query.search || '';
+    const offset = (page - 1) * limit;
+
+    // Verify user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'User not found'
+      });
+    }
+
+    // Build where clause for articles
+    const whereClause = { 
+      authorId: userId, 
+      status: 'published' 
+    };
+
+    // Add search functionality
+    if (search) {
+      whereClause.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { content: { contains: search, mode: 'insensitive' } },
+        { excerpt: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    // Fetch published articles authored by this user
+    const articles = await prisma.article.findMany({
+      where: whereClause,
+      orderBy: { createdAt: 'desc' },
+      skip: offset,
+      take: limit,
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        excerpt: true,
+        category: true,
+        sourceUrl: true,
+        sourceName: true,
+        pointsValue: true,
+        readTimeEstimate: true,
+        isFeatured: true,
+        imageUrl: true,
+        createdAt: true,
+        publishedAt: true,
+        status: true,
+      }
+    });
+
+    const total = await prisma.article.count({
+      where: whereClause
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        articles,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get user published articles error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'GET_USER_ARTICLES_ERROR',
+      message: 'Failed to fetch user articles'
     });
   }
 });
