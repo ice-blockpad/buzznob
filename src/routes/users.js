@@ -692,8 +692,7 @@ router.get('/:userId/articles', async (req, res) => {
     if (search) {
       whereClause.OR = [
         { title: { contains: search, mode: 'insensitive' } },
-        { content: { contains: search, mode: 'insensitive' } },
-        { excerpt: { contains: search, mode: 'insensitive' } }
+        { content: { contains: search, mode: 'insensitive' } }
       ];
     }
 
@@ -707,7 +706,6 @@ router.get('/:userId/articles', async (req, res) => {
         id: true,
         title: true,
         content: true,
-        excerpt: true,
         category: true,
         sourceUrl: true,
         sourceName: true,
