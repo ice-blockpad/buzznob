@@ -376,4 +376,287 @@ router.delete('/account', authenticateToken, async (req, res) => {
   }
 });
 
+// Get creators list (for social features)
+router.get('/creators', authenticateToken, async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const search = req.query.search || '';
+    const skip = (page - 1) * limit;
+
+    // Build where clause for creators (users with creator or admin role)
+    const whereClause = {
+      role: {
+        in: ['creator', 'admin']
+      },
+      isActive: true
+    };
+
+    // Add search functionality
+    if (search) {
+      whereClause.OR = [
+        { username: { contains: search, mode: 'insensitive' } },
+        { displayName: { contains: search, mode: 'insensitive' } },
+        { bio: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    // Get creators with follower count
+    const creators = await prisma.user.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        username: true,
+        displayName: true,
+        bio: true,
+        avatarUrl: true,
+        role: true,
+        points: true,
+        createdAt: true,
+        _count: {
+          select: {
+            followers: true
+          }
+        }
+      },
+      orderBy: {
+        points: 'desc'
+      },
+      skip,
+      take: limit
+    });
+
+    // Get current user's following list
+    const userFollows = await prisma.follow.findMany({
+      where: { followerId: req.user.id },
+      select: { followingId: true }
+    });
+
+    const followingIds = userFollows.map(follow => follow.followingId);
+
+    // Transform creators to include follower count
+    const creatorsWithStats = creators.map(creator => ({
+      id: creator.id,
+      username: creator.username,
+      displayName: creator.displayName,
+      bio: creator.bio,
+      avatarUrl: creator.avatarUrl,
+      role: creator.role,
+      points: creator.points,
+      followersCount: creator._count.followers,
+      createdAt: creator.createdAt,
+      isCreator: creator.role === 'creator' || creator.role === 'admin'
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        creators: creatorsWithStats,
+        followingIds
+      }
+    });
+
+  } catch (error) {
+    console.error('Get creators error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'CREATORS_FETCH_ERROR',
+      message: 'Failed to fetch creators'
+    });
+  }
+});
+
+// Follow a user
+router.post('/:userId/follow', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const followerId = req.user.id;
+
+    // Prevent self-follow
+    if (userId === followerId) {
+      return res.status(400).json({
+        success: false,
+        error: 'CANNOT_FOLLOW_SELF',
+        message: 'You cannot follow yourself'
+      });
+    }
+
+    // Check if user exists
+    const userToFollow = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, displayName: true }
+    });
+
+    if (!userToFollow) {
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'User not found'
+      });
+    }
+
+    // Check if already following
+    const existingFollow = await prisma.follow.findUnique({
+      where: {
+        followerId_followingId: {
+          followerId,
+          followingId: userId
+        }
+      }
+    });
+
+    if (existingFollow) {
+      return res.status(400).json({
+        success: false,
+        error: 'ALREADY_FOLLOWING',
+        message: 'You are already following this user'
+      });
+    }
+
+    // Create follow relationship
+    await prisma.follow.create({
+      data: {
+        followerId,
+        followingId: userId
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `You are now following ${userToFollow.displayName || userToFollow.username}`
+    });
+
+  } catch (error) {
+    console.error('Follow user error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'FOLLOW_ERROR',
+      message: 'Failed to follow user'
+    });
+  }
+});
+
+// Unfollow a user
+router.post('/:userId/unfollow', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const followerId = req.user.id;
+
+    // Check if follow relationship exists
+    const existingFollow = await prisma.follow.findUnique({
+      where: {
+        followerId_followingId: {
+          followerId,
+          followingId: userId
+        }
+      }
+    });
+
+    if (!existingFollow) {
+      return res.status(400).json({
+        success: false,
+        error: 'NOT_FOLLOWING',
+        message: 'You are not following this user'
+      });
+    }
+
+    // Remove follow relationship
+    await prisma.follow.delete({
+      where: {
+        followerId_followingId: {
+          followerId,
+          followingId: userId
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'You have unfollowed this user'
+    });
+
+  } catch (error) {
+    console.error('Unfollow user error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'UNFOLLOW_ERROR',
+      message: 'Failed to unfollow user'
+    });
+  }
+});
+
+// Get public profile
+router.get('/:userId/public-profile', authenticateToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        username: true,
+        displayName: true,
+        bio: true,
+        avatarUrl: true,
+        role: true,
+        points: true,
+        createdAt: true,
+        _count: {
+          select: {
+            followers: true,
+            following: true,
+            authoredArticles: {
+              where: { status: 'published' }
+            }
+          }
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'User not found'
+      });
+    }
+
+    // Check if current user is following this user
+    const isFollowing = await prisma.follow.findUnique({
+      where: {
+        followerId_followingId: {
+          followerId: req.user.id,
+          followingId: userId
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName,
+        bio: user.bio,
+        avatarUrl: user.avatarUrl,
+        role: user.role,
+        points: user.points,
+        followersCount: user._count.followers,
+        followingCount: user._count.following,
+        articlesCount: user._count.authoredArticles,
+        createdAt: user.createdAt,
+        isFollowing: !!isFollowing
+      }
+    });
+
+  } catch (error) {
+    console.error('Get public profile error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'PROFILE_FETCH_ERROR',
+      message: 'Failed to fetch user profile'
+    });
+  }
+});
+
 module.exports = router;

@@ -55,6 +55,8 @@ model User {
   refereeRewards  ReferralReward[] @relation("ReferralRewardsAsReferee")
   authoredArticles Article[] @relation("ArticleAuthor")
   reviewedArticles Article[] @relation("ArticleReviewer")
+  followers        Follow[] @relation("UserFollowers")
+  following        Follow[] @relation("UserFollowing")
 
   @@map("users")
 }
@@ -287,6 +289,20 @@ model ReferralReward {
 
   @@unique([referrerId, refereeId])
   @@map("referral_rewards")
+}
+
+model Follow {
+  id          String   @id @default(cuid()) @db.VarChar
+  followerId  String   @map("follower_id") @db.VarChar
+  followingId String   @map("following_id") @db.VarChar
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  follower    User     @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User     @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@map("follows")
 }
 
 // Note: Using string types instead of enums to match database schema
