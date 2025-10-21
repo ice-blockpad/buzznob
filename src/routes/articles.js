@@ -35,7 +35,8 @@ router.get('/trending', optionalAuth, async (req, res) => {
           select: {
             id: true,
             username: true,
-            displayName: true
+            displayName: true,
+            role: true
           }
         }
       }
@@ -94,7 +95,8 @@ router.get('/', optionalAuth, async (req, res) => {
           select: {
             id: true,
             username: true,
-            displayName: true
+            displayName: true,
+            role: true
           }
         }
       }
@@ -176,7 +178,8 @@ router.get('/search', optionalAuth, async (req, res) => {
           select: {
             id: true,
             username: true,
-            displayName: true
+            displayName: true,
+            role: true
           }
         }
       }
@@ -218,7 +221,7 @@ router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
     // Verify creator exists
     const creator = await prisma.user.findUnique({
       where: { id: creatorId },
-      select: { id: true, username: true, displayName: true, firstName: true, lastName: true }
+      select: { id: true, username: true, displayName: true, firstName: true, lastName: true, role: true }
     });
 
     if (!creator) {

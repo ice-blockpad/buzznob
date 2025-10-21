@@ -556,7 +556,8 @@ router.get('/articles', authenticateToken, requireAdmin, async (req, res) => {
           select: {
             id: true,
             username: true,
-            displayName: true
+            displayName: true,
+            role: true
           }
         }
       }
@@ -615,7 +616,8 @@ router.get('/articles/pending', authenticateToken, requireAdmin, async (req, res
             id: true,
             username: true,
             displayName: true,
-            email: true
+            email: true,
+            role: true
           }
         }
       }
@@ -840,7 +842,8 @@ router.patch('/articles/:id/approve', authenticateToken, requireAdmin, async (re
             id: true,
             username: true,
             displayName: true,
-            email: true
+            email: true,
+            role: true
           }
         }
       }
@@ -915,7 +918,8 @@ router.patch('/articles/:id/reject', authenticateToken, requireAdmin, async (req
             id: true,
             username: true,
             displayName: true,
-            email: true
+            email: true,
+            role: true
           }
         }
       }
@@ -993,14 +997,16 @@ router.get('/articles/review-history', authenticateToken, requireAdmin, async (r
             id: true,
             username: true,
             displayName: true,
-            email: true
+            email: true,
+            role: true
           }
         },
         reviewer: {
           select: {
             id: true,
             username: true,
-            displayName: true
+            displayName: true,
+            role: true
           }
         }
       }

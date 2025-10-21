@@ -233,6 +233,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
         username: true,
         displayName: true,
         avatarUrl: true,
+        role: true,
         createdAt: true
       },
       orderBy: { createdAt: 'desc' },
@@ -274,6 +275,7 @@ router.get('/history', authenticateToken, async (req, res) => {
         displayName: true,
         avatarUrl: true,
         points: true,
+        role: true,
         createdAt: true
       },
       orderBy: { createdAt: 'desc' },

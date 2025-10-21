@@ -129,6 +129,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
         googleId: true,
         walletAddress: true,
         displayName: true,
+        role: true,
         firstName: true,
         lastName: true,
         bio: true,
@@ -581,7 +582,7 @@ router.post('/:userId/follow', authenticateToken, async (req, res) => {
     // Check if user exists
     const userToFollow = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, username: true, displayName: true }
+      select: { id: true, username: true, displayName: true, role: true }
     });
 
     if (!userToFollow) {

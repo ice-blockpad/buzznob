@@ -210,7 +210,8 @@ router.get('/admin/submissions', authenticateToken, async (req, res) => {
             id: true,
             username: true,
             email: true,
-            displayName: true
+            displayName: true,
+            role: true
           }
         }
       },

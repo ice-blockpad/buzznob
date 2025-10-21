@@ -217,6 +217,7 @@ router.get('/leaderboard', async (req, res) => {
         avatarUrl: true,
         points: true,
         streakCount: true,
+        role: true,
         activities: {
           where: {
             completedAt: {

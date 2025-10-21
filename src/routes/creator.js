@@ -145,7 +145,8 @@ router.get('/articles', authenticateToken, requireCreator, async (req, res) => {
           select: {
             id: true,
             username: true,
-            displayName: true
+            displayName: true,
+            role: true
           }
         }
       }
