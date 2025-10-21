@@ -2,7 +2,7 @@ const express = require('express');
 const { prisma } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
-const { upload } = require('../middleware/upload');
+const upload = require('../middleware/upload');
 
 const router = express.Router();
 
