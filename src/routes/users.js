@@ -2,6 +2,7 @@ const express = require('express');
 const { prisma } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
+const { upload } = require('../middleware/upload');
 
 const router = express.Router();
 
@@ -21,6 +22,8 @@ router.get('/profile', authenticateToken, async (req, res) => {
         firstName: true,
         lastName: true,
         avatarUrl: true,
+        avatarData: true,
+        avatarType: true,
         points: true,
         streakCount: true,
         lastLogin: true,
@@ -130,6 +133,8 @@ router.put('/profile', authenticateToken, async (req, res) => {
         lastName: true,
         bio: true,
         avatarUrl: true,
+        avatarData: true,
+        avatarType: true,
         points: true,
         streakCount: true,
         lastLogin: true,
@@ -146,6 +151,94 @@ router.put('/profile', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'PROFILE_UPDATE_ERROR',
+      message: 'Failed to update user profile'
+    });
+  }
+});
+
+// Update user profile with file upload (avatar)
+router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxCount: 1 }]), async (req, res) => {
+  try {
+    const { displayName, bio, avatarData, avatarType, avatarName } = req.body;
+
+    // Handle avatar data - store directly in database
+    let avatarUrl = null;
+    
+    if (avatarData) {
+      // Store avatar data directly in database
+      console.log('Storing avatar data in database');
+      
+      // Check image size (base64 is ~33% larger than original)
+      const base64Size = avatarData.length;
+      const estimatedOriginalSize = (base64Size * 3) / 4; // Approximate original size
+      const maxSize = 200 * 1024; // 200KB
+      
+      console.log('Avatar data length:', base64Size);
+      console.log('Estimated original size:', Math.round(estimatedOriginalSize / 1024) + 'KB');
+      console.log('Avatar type:', avatarType);
+      
+      if (estimatedOriginalSize > maxSize) {
+        return res.status(400).json({
+          success: false,
+          error: 'AVATAR_TOO_LARGE',
+          message: `Avatar size is ${Math.round(estimatedOriginalSize / 1024)}KB. Maximum allowed size is 200KB.`
+        });
+      }
+
+      // Check image format (same as creator functionality)
+      const allowedTypes = /jpeg|jpg|png/;
+      if (avatarType && !allowedTypes.test(avatarType)) {
+        return res.status(400).json({
+          success: false,
+          error: 'INVALID_IMAGE_FORMAT',
+          message: 'Only JPEG, JPG, and PNG images are allowed.'
+        });
+      }
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user.id },
+      data: {
+        ...(displayName && { displayName }),
+        ...(bio && { bio }),
+        ...(avatarData && { 
+          avatarData, // Store base64 data directly
+          avatarUrl: null // Clear Google avatar when user uploads custom image
+        }),
+        ...(avatarType && { avatarType }),
+      },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        googleId: true,
+        walletAddress: true,
+        displayName: true,
+        firstName: true,
+        lastName: true,
+        bio: true,
+        avatarUrl: true,
+        avatarData: true,
+        avatarType: true,
+        points: true,
+        streakCount: true,
+        lastLogin: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      data: { user: updatedUser }
+    });
+
+  } catch (error) {
+    console.error('Update profile with file error:', error);
     res.status(500).json({
       success: false,
       error: 'PROFILE_UPDATE_ERROR',
@@ -410,6 +503,8 @@ router.get('/creators', authenticateToken, async (req, res) => {
         displayName: true,
         bio: true,
         avatarUrl: true,
+        avatarData: true,
+        avatarType: true,
         role: true,
         points: true,
         createdAt: true,
@@ -598,6 +693,8 @@ router.get('/:userId/public-profile', authenticateToken, async (req, res) => {
         displayName: true,
         bio: true,
         avatarUrl: true,
+        avatarData: true,
+        avatarType: true,
         role: true,
         points: true,
         createdAt: true,

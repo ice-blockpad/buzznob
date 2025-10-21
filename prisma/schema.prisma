@@ -20,6 +20,8 @@ model User {
   firstName     String?  @map("first_name")
   lastName      String?  @map("last_name")
   avatarUrl     String?  @map("avatar_url")
+  avatarData    String?  @map("avatar_data") @db.Text
+  avatarType    String?  @map("avatar_type")
   points        Int      @default(0)
   streakCount   Int      @default(0) @map("streak_count")
   lastLogin     DateTime? @map("last_login")
