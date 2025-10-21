@@ -536,6 +536,8 @@ router.get('/creators', authenticateToken, async (req, res) => {
       displayName: creator.displayName,
       bio: creator.bio,
       avatarUrl: creator.avatarUrl,
+      avatarData: creator.avatarData,
+      avatarType: creator.avatarType,
       role: creator.role,
       points: creator.points,
       followersCount: creator._count.followers,
