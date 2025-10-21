@@ -736,6 +736,8 @@ router.get('/:userId/public-profile', authenticateToken, async (req, res) => {
         displayName: user.displayName,
         bio: user.bio,
         avatarUrl: user.avatarUrl,
+        avatarData: user.avatarData,
+        avatarType: user.avatarType,
         role: user.role,
         points: user.points,
         followersCount: user._count.followers,
