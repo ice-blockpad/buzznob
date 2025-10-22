@@ -59,6 +59,7 @@ model User {
   reviewedArticles Article[] @relation("ArticleReviewer")
   followers        Follow[] @relation("UserFollowers")
   following        Follow[] @relation("UserFollowing")
+  dailyRewards     DailyReward[]
 
   @@map("users")
 }
@@ -107,6 +108,7 @@ model UserActivity {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   article       Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
+  @@unique([userId, articleId])
   @@map("user_activities")
 }
 
@@ -305,6 +307,20 @@ model Follow {
 
   @@unique([followerId, followingId])
   @@map("follows")
+}
+
+model DailyReward {
+  id            String   @id @default(cuid()) @db.VarChar
+  userId        String   @map("user_id") @db.VarChar
+  pointsEarned  Int      @map("points_earned")
+  streakCount   Int      @map("streak_count")
+  streakBonus   Int      @map("streak_bonus")
+  claimedAt     DateTime @default(now()) @map("claimed_at")
+
+  // Relations
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("daily_rewards")
 }
 
 // Note: Using string types instead of enums to match database schema

@@ -5,6 +5,180 @@ const { errorHandler } = require('../middleware/errorHandler');
 
 const router = express.Router();
 
+// Daily reward system (24-hour cooldown)
+router.post('/daily/claim', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+
+    // Check if user claimed within the last 24 hours
+    const recentClaim = await prisma.dailyReward.findFirst({
+      where: {
+        userId,
+        claimedAt: {
+          gte: twentyFourHoursAgo
+        }
+      },
+      orderBy: {
+        claimedAt: 'desc'
+      }
+    });
+
+    if (recentClaim) {
+      const timeUntilNextClaim = new Date(recentClaim.claimedAt.getTime() + (24 * 60 * 60 * 1000));
+      const hoursRemaining = Math.ceil((timeUntilNextClaim - now) / (1000 * 60 * 60));
+      
+      return res.status(400).json({
+        success: false,
+        error: 'DAILY_REWARD_COOLDOWN',
+        message: `Daily reward is on cooldown. Try again in ${hoursRemaining} hours.`,
+        data: {
+          nextAvailableAt: timeUntilNextClaim,
+          hoursRemaining
+        }
+      });
+    }
+
+    // Calculate streak-based reward
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { streakCount: true, points: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'User not found'
+      });
+    }
+
+    // Base reward is 10 points, bonus for streaks
+    let rewardPoints = 10;
+    let streakBonus = 0;
+
+    if (user.streakCount >= 7) {
+      streakBonus = 20; // 20 bonus points for 7+ day streak
+    } else if (user.streakCount >= 3) {
+      streakBonus = 10; // 10 bonus points for 3+ day streak
+    }
+
+    const totalReward = rewardPoints + streakBonus;
+
+    // Create daily reward record
+    const dailyReward = await prisma.dailyReward.create({
+      data: {
+        userId,
+        pointsEarned: totalReward,
+        streakCount: user.streakCount,
+        streakBonus
+      }
+    });
+
+    // Update user points
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        points: {
+          increment: totalReward
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Daily reward claimed successfully',
+      data: {
+        pointsEarned: totalReward,
+        baseReward: rewardPoints,
+        streakBonus,
+        streakCount: user.streakCount,
+        totalPoints: user.points + totalReward
+      }
+    });
+
+  } catch (error) {
+    console.error('Daily reward claim error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'DAILY_REWARD_ERROR',
+      message: 'Failed to claim daily reward'
+    });
+  }
+});
+
+// Get daily reward status (24-hour cooldown)
+router.get('/daily/status', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+
+    // Check if user claimed within the last 24 hours
+    const recentClaim = await prisma.dailyReward.findFirst({
+      where: {
+        userId,
+        claimedAt: {
+          gte: twentyFourHoursAgo
+        }
+      },
+      orderBy: {
+        claimedAt: 'desc'
+      }
+    });
+
+    // Get user streak count
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { streakCount: true }
+    });
+
+    // Calculate potential reward
+    let baseReward = 10;
+    let streakBonus = 0;
+
+    if (user.streakCount >= 7) {
+      streakBonus = 20;
+    } else if (user.streakCount >= 3) {
+      streakBonus = 10;
+    }
+
+    // Calculate cooldown information
+    let isOnCooldown = false;
+    let nextAvailableAt = null;
+    let hoursRemaining = 0;
+
+    if (recentClaim) {
+      isOnCooldown = true;
+      nextAvailableAt = new Date(recentClaim.claimedAt.getTime() + (24 * 60 * 60 * 1000));
+      hoursRemaining = Math.ceil((nextAvailableAt - now) / (1000 * 60 * 60));
+    }
+
+    res.json({
+      success: true,
+      data: {
+        isOnCooldown,
+        nextAvailableAt,
+        hoursRemaining,
+        streakCount: user.streakCount,
+        baseReward,
+        streakBonus,
+        totalReward: baseReward + streakBonus,
+        lastClaimed: recentClaim?.claimedAt || null
+      }
+    });
+
+  } catch (error) {
+    console.error('Daily reward status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'DAILY_REWARD_STATUS_ERROR',
+      message: 'Failed to get daily reward status'
+    });
+  }
+});
+
 // Get available rewards
 router.get('/available', authenticateToken, async (req, res) => {
   try {

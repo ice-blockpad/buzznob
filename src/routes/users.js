@@ -34,7 +34,13 @@ router.get('/profile', authenticateToken, async (req, res) => {
         kycStatus: true,
         bio: true,
         createdAt: true,
-        updatedAt: true
+        updatedAt: true,
+        _count: {
+          select: {
+            activities: true,
+            userBadges: true
+          }
+        }
       }
     });
 
@@ -46,9 +52,19 @@ router.get('/profile', authenticateToken, async (req, res) => {
       });
     }
 
+    // Add computed fields
+    const userWithStats = {
+      ...user,
+      totalArticlesRead: user._count.activities,
+      achievementsCount: user._count.userBadges
+    };
+
+    // Remove the _count field
+    delete userWithStats._count;
+
     res.json({
       success: true,
-      data: { user }
+      data: { user: userWithStats }
     });
 
   } catch (error) {
@@ -357,7 +373,7 @@ router.get('/activity', authenticateToken, async (req, res) => {
   }
 });
 
-// Get user badges
+// Get user badges/achievements
 router.get('/badges', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -381,6 +397,44 @@ router.get('/badges', authenticateToken, async (req, res) => {
       success: false,
       error: 'BADGES_FETCH_ERROR',
       message: 'Failed to fetch user badges'
+    });
+  }
+});
+
+// Get user achievements count
+router.get('/achievements', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Get total achievements count
+    const achievementsCount = await prisma.userBadge.count({
+      where: { userId }
+    });
+
+    // Get recent achievements (last 5)
+    const recentAchievements = await prisma.userBadge.findMany({
+      where: { userId },
+      include: {
+        badge: true
+      },
+      orderBy: { earnedAt: 'desc' },
+      take: 5
+    });
+
+    res.json({
+      success: true,
+      data: {
+        totalCount: achievementsCount,
+        recentAchievements
+      }
+    });
+
+  } catch (error) {
+    console.error('Get user achievements error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'ACHIEVEMENTS_FETCH_ERROR',
+      message: 'Failed to fetch user achievements'
     });
   }
 });
