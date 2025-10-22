@@ -585,20 +585,34 @@ async function checkBadgeEligibility(userId) {
       });
 
       if (!userHasBadge) {
+        let shouldAwardBadge = false;
+        
         if (badge.points && user.points >= badge.points) {
-          await prisma.userBadge.create({
-            data: {
-              userId,
-              badgeId: badgeExists.id
-            }
-          });
+          shouldAwardBadge = true;
         } else if (badge.read && totalRead >= badge.read) {
+          shouldAwardBadge = true;
+        }
+
+        if (shouldAwardBadge) {
+          // Award the badge
           await prisma.userBadge.create({
             data: {
               userId,
               badgeId: badgeExists.id
             }
           });
+
+          // Add points for earning the badge (if badge has points requirement)
+          if (badgeExists.pointsRequired && badgeExists.pointsRequired > 0) {
+            await prisma.user.update({
+              where: { id: userId },
+              data: {
+                points: {
+                  increment: badgeExists.pointsRequired
+                }
+              }
+            });
+          }
         }
       }
     }
