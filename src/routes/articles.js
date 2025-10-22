@@ -315,7 +315,15 @@ router.get('/:id', optionalAuth, async (req, res) => {
         imageUrl: true,
         imageData: true,
         imageType: true,
-        createdAt: true
+        createdAt: true,
+        author: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            role: true
+          }
+        }
       }
     });
 
@@ -327,9 +335,26 @@ router.get('/:id', optionalAuth, async (req, res) => {
       });
     }
 
+    // Check if user has read this article (if authenticated)
+    let isRead = false;
+    if (req.user && req.user.id) {
+      const userActivity = await prisma.userActivity.findFirst({
+        where: {
+          userId: req.user.id,
+          articleId: id
+        }
+      });
+      isRead = !!userActivity;
+    }
+
     res.json({
       success: true,
-      data: { article }
+      data: { 
+        article: {
+          ...article,
+          isRead
+        }
+      }
     });
 
   } catch (error) {
