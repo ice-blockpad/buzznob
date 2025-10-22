@@ -390,6 +390,7 @@ router.get('/leaderboard', async (req, res) => {
         username: true,
         displayName: true,
         avatarUrl: true,
+        avatarData: true,
         points: true,
         streakCount: true,
         role: true
@@ -441,6 +442,7 @@ router.get('/leaderboard', async (req, res) => {
           username: user.username,
           displayName: user.displayName,
           avatarUrl: user.avatarUrl,
+          avatarData: user.avatarData,
           totalPoints: user.points,
           periodPoints: user.periodPoints,
           streakCount: user.streakCount
