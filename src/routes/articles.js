@@ -557,14 +557,17 @@ async function checkBadgeEligibility(userId) {
       select: { points: true }
     });
 
-    // Check for milestone badges
+    // Check for milestone badges (using actual badge names from database)
     const milestoneBadges = [
       { points: 100, name: 'Point Collector' },
       { points: 500, name: 'Point Master' },
-      { points: 1000, name: 'Point Legend' },
-      { read: 10, name: 'Content Explorer' },
-      { read: 50, name: 'Content Master' },
-      { read: 100, name: 'Content Legend' }
+      { points: 1000, name: 'BuzzNob Legend' },
+      { read: 1, name: 'Article Reader' },
+      { read: 10, name: 'Curious Mind' },
+      { read: 25, name: 'Knowledge Seeker' },
+      { read: 50, name: 'Avid Reader' },
+      { read: 100, name: 'Article Master' },
+      { read: 1000, name: 'Content Legend' }
     ];
 
     for (const badge of milestoneBadges) {
