@@ -406,6 +406,34 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
       });
     }
 
+    // Check daily article reading limit (3 articles per day)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Start of today
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1); // Start of tomorrow
+
+    const todayActivities = await prisma.userActivity.count({
+      where: {
+        userId,
+        completedAt: {
+          gte: today,
+          lt: tomorrow
+        }
+      }
+    });
+
+    if (todayActivities >= 3) {
+      return res.status(400).json({
+        success: false,
+        error: 'DAILY_ARTICLE_LIMIT_REACHED',
+        message: 'You have reached the daily reward limit of 3 articles. Come back tomorrow to earn more rewards!',
+        data: {
+          articlesReadToday: todayActivities,
+          dailyLimit: 3
+        }
+      });
+    }
+
     // Create user activity
     const activity = await prisma.userActivity.create({
       data: {
