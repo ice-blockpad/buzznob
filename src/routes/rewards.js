@@ -382,7 +382,8 @@ router.get('/leaderboard', async (req, res) => {
         startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     }
 
-    // Get users with their points for the period
+    // Get users with their total points (for leaderboard ranking)
+    // First get all users sorted by total points
     const leaderboard = await prisma.user.findMany({
       select: {
         id: true,
@@ -391,9 +392,24 @@ router.get('/leaderboard', async (req, res) => {
         avatarUrl: true,
         points: true,
         streakCount: true,
-        role: true,
-        activities: {
+        role: true
+      },
+      orderBy: { points: 'desc' },
+      take: limit
+    });
+
+    // Debug: Log the first few users to verify sorting
+    console.log('Leaderboard data (first 5 users):', leaderboard.slice(0, 5).map(u => ({
+      username: u.username,
+      points: u.points
+    })));
+
+    // Now get period points for each user separately
+    const leaderboardWithPeriodPoints = await Promise.all(
+      leaderboard.map(async (user) => {
+        const periodActivities = await prisma.userActivity.findMany({
           where: {
+            userId: user.id,
             completedAt: {
               gte: startDate,
               lte: endDate
@@ -402,20 +418,19 @@ router.get('/leaderboard', async (req, res) => {
           select: {
             pointsEarned: true
           }
-        }
-      },
-      orderBy: { points: 'desc' },
-      take: limit
-    });
+        });
+        
+        const periodPoints = periodActivities.reduce((sum, activity) => sum + activity.pointsEarned, 0);
+        
+        return {
+          ...user,
+          periodPoints
+        };
+      })
+    );
 
-    // Calculate period points
-    const leaderboardWithPeriodPoints = leaderboard.map(user => ({
-      ...user,
-      periodPoints: user.activities.reduce((sum, activity) => sum + activity.pointsEarned, 0)
-    }));
-
-    // Sort by period points
-    leaderboardWithPeriodPoints.sort((a, b) => b.periodPoints - a.periodPoints);
+    // Ensure we're using the original order from database (sorted by total points)
+    // No additional sorting needed - database already sorted by points DESC
 
     res.json({
       success: true,
@@ -442,6 +457,40 @@ router.get('/leaderboard', async (req, res) => {
       success: false,
       error: 'LEADERBOARD_FETCH_ERROR',
       message: 'Failed to fetch leaderboard'
+    });
+  }
+});
+
+// Get user rank
+router.get('/user-rank', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Count how many users have more points than the current user
+    const usersWithMorePoints = await prisma.user.count({
+      where: {
+        points: {
+          gt: req.user.points
+        }
+      }
+    });
+    
+    const userRank = usersWithMorePoints + 1;
+    
+    res.json({
+      success: true,
+      data: {
+        rank: userRank,
+        points: req.user.points
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get user rank error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'USER_RANK_FETCH_ERROR',
+      message: 'Failed to fetch user rank'
     });
   }
 });
