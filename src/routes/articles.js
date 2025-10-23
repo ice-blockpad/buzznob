@@ -455,7 +455,7 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
     });
 
     // Check for badge eligibility
-    await checkBadgeEligibility(userId);
+    await achievementsService.checkBadgeEligibility(userId);
 
     res.json({
       success: true,
@@ -543,82 +543,7 @@ router.get('/trending', optionalAuth, async (req, res) => {
   }
 });
 
-// Helper function to check badge eligibility
-async function checkBadgeEligibility(userId) {
-  try {
-    // Get user's total articles read
-    const totalRead = await prisma.userActivity.count({
-      where: { userId }
-    });
-
-    // Get user's total points
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { points: true }
-    });
-
-    // Check for milestone badges (using actual badge names from database)
-    const milestoneBadges = [
-      { points: 100, name: 'Point Collector' },
-      { points: 500, name: 'Point Master' },
-      { points: 1000, name: 'BuzzNob Legend' },
-      { read: 1, name: 'Article Reader' },
-      { read: 10, name: 'Curious Mind' },
-      { read: 25, name: 'Knowledge Seeker' },
-      { read: 50, name: 'Avid Reader' },
-      { read: 100, name: 'Article Master' },
-      { read: 1000, name: 'Content Legend' }
-    ];
-
-    for (const badge of milestoneBadges) {
-      const badgeExists = await prisma.badge.findUnique({
-        where: { name: badge.name }
-      });
-
-      if (!badgeExists) continue;
-
-      const userHasBadge = await prisma.userBadge.findFirst({
-        where: {
-          userId,
-          badgeId: badgeExists.id
-        }
-      });
-
-      if (!userHasBadge) {
-        let shouldAwardBadge = false;
-        
-        if (badge.points && user.points >= badge.points) {
-          shouldAwardBadge = true;
-        } else if (badge.read && totalRead >= badge.read) {
-          shouldAwardBadge = true;
-        }
-
-        if (shouldAwardBadge) {
-          // Award the badge
-          await prisma.userBadge.create({
-            data: {
-              userId,
-              badgeId: badgeExists.id
-            }
-          });
-
-          // Add points for earning the badge (if badge has points requirement)
-          if (badgeExists.pointsRequired && badgeExists.pointsRequired > 0) {
-            await prisma.user.update({
-              where: { id: userId },
-              data: {
-                points: {
-                  increment: badgeExists.pointsRequired
-                }
-              }
-            });
-          }
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Badge eligibility check error:', error);
-  }
-}
+// Import achievements service
+const achievementsService = require('../services/achievements');
 
 module.exports = router;

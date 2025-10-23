@@ -56,26 +56,32 @@ async function main() {
     },
     {
       name: 'Knowledge Seeker',
-      description: 'Read 25 articles',
+      description: 'Read 50 articles',
       pointsRequired: 250,
       category: 'reading'
     },
     {
       name: 'Avid Reader',
-      description: 'Read 50 articles',
-      pointsRequired: 400,
+      description: 'Read 100 articles',
+      pointsRequired: 500,
+      category: 'reading'
+    },
+    {
+      name: 'Explorer',
+      description: 'Read 200 articles',
+      pointsRequired: 1000,
       category: 'reading'
     },
     {
       name: 'Article Master',
-      description: 'Read 100 articles',
-      pointsRequired: 750,
+      description: 'Read 500 articles',
+      pointsRequired: 5000,
       category: 'reading'
     },
     {
-      name: 'Content Legend',
-      description: 'Read 500 articles',
-      pointsRequired: 3000,
+      name: 'Mr. Know-It-All',
+      description: 'Read 1000 articles',
+      pointsRequired: 10000,
       category: 'reading'
     },
     
@@ -88,26 +94,38 @@ async function main() {
     },
     {
       name: 'Friend Magnet',
-      description: 'Refer 3 friends',
-      pointsRequired: 250,
-      category: 'social'
-    },
-    {
-      name: 'Social Butterfly',
-      description: 'Refer 5 friends',
+      description: 'Refer 10 friends',
       pointsRequired: 500,
       category: 'social'
     },
     {
+      name: 'Social Butterfly',
+      description: 'Refer 25 friends',
+      pointsRequired: 750,
+      category: 'social'
+    },
+    {
       name: 'Community Builder',
-      description: 'Refer 10 friends',
+      description: 'Refer 50 friends',
       pointsRequired: 1000,
       category: 'social'
     },
     {
       name: 'Influencer',
-      description: 'Refer 25 friends',
+      description: 'Refer 100 friends',
       pointsRequired: 2500,
+      category: 'social'
+    },
+    {
+      name: 'Social Nerd',
+      description: 'Refer 200 friends',
+      pointsRequired: 5000,
+      category: 'social'
+    },
+    {
+      name: 'Key Opinion Leader',
+      description: 'Refer 500 friends',
+      pointsRequired: 10000,
       category: 'social'
     },
     
@@ -115,7 +133,7 @@ async function main() {
     {
       name: 'Early Adopter',
       description: 'Join BuzzNob in the first month',
-      pointsRequired: 1000,
+      pointsRequired: 5000,
       category: 'special'
     },
     {
@@ -138,19 +156,19 @@ async function main() {
     },
     {
       name: 'Point Collector',
-      description: 'Earn 1,000 points',
+      description: 'Earn 10,000 points',
       pointsRequired: 1000,
       category: 'special'
     },
     {
       name: 'Point Master',
-      description: 'Earn 5,000 points',
+      description: 'Earn 50,000 points',
       pointsRequired: 5000,
       category: 'special'
     },
     {
       name: 'BuzzNob Legend',
-      description: 'Earn 10,000 points',
+      description: 'Earn 100,000 points',
       pointsRequired: 10000,
       category: 'special'
     }

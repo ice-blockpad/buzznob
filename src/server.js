@@ -17,6 +17,7 @@ const referralRoutes = require('./routes/referrals');
 const adminRoutes = require('./routes/admin');
 const creatorRoutes = require('./routes/creator');
 const dataRoutes = require('./routes/data');
+const achievementRoutes = require('./routes/achievements');
 const { errorHandler } = require('./middleware/errorHandler');
 const { connectDB } = require('./config/database');
 const { autoSyncDatabase } = require('./scripts/autoSync');
@@ -131,6 +132,7 @@ app.use('/api/referrals', referralRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/creator', creatorRoutes);
 app.use('/api/data', dataRoutes);
+app.use('/api/achievements', achievementRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
