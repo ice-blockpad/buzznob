@@ -52,11 +52,22 @@ router.get('/profile', authenticateToken, async (req, res) => {
       });
     }
 
+    // Calculate user's rank (how many users have more points)
+    const usersWithMorePoints = await prisma.user.count({
+      where: {
+        points: {
+          gt: user.points
+        }
+      }
+    });
+    const userRank = usersWithMorePoints + 1;
+
     // Add computed fields
     const userWithStats = {
       ...user,
       totalArticlesRead: user._count.activities,
-      achievementsCount: user._count.userBadges
+      achievementsCount: user._count.userBadges,
+      rank: userRank
     };
 
     // Remove the _count field
@@ -160,10 +171,20 @@ router.put('/profile', authenticateToken, async (req, res) => {
       }
     });
 
+    // Calculate user's rank for the updated user
+    const usersWithMorePoints = await prisma.user.count({
+      where: {
+        points: {
+          gt: updatedUser.points
+        }
+      }
+    });
+    const userRank = usersWithMorePoints + 1;
+
     res.json({
       success: true,
       message: 'Profile updated successfully',
-      data: { user: updatedUser }
+      data: { user: { ...updatedUser, rank: userRank } }
     });
 
   } catch (error) {
@@ -248,10 +269,20 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
       }
     });
 
+    // Calculate user's rank for the updated user
+    const usersWithMorePoints = await prisma.user.count({
+      where: {
+        points: {
+          gt: updatedUser.points
+        }
+      }
+    });
+    const userRank = usersWithMorePoints + 1;
+
     res.json({
       success: true,
       message: 'Profile updated successfully',
-      data: { user: updatedUser }
+      data: { user: { ...updatedUser, rank: userRank } }
     });
 
   } catch (error) {
