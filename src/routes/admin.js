@@ -302,6 +302,47 @@ router.delete('/users/:userId', authenticateToken, requireAdmin, async (req, res
   }
 });
 
+// Get user achievements (admin)
+router.get('/users/:userId/achievements', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Check if user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Get user achievements with badge details
+    const userAchievements = await prisma.userBadge.findMany({
+      where: { userId: userId },
+      include: {
+        badge: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    res.json({
+      success: true,
+      data: userAchievements
+    });
+  } catch (error) {
+    console.error('Error fetching user achievements:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user achievements'
+    });
+  }
+});
+
 // Toggle user achievement (admin)
 router.patch('/users/:userId/achievements/:achievementId', authenticateToken, requireAdmin, async (req, res) => {
   try {
