@@ -326,7 +326,7 @@ router.get('/users/:userId/achievements', authenticateToken, requireAdmin, async
         badge: true
       },
       orderBy: {
-        createdAt: 'desc'
+        earnedAt: 'desc'
       }
     });
 
