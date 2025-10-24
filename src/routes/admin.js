@@ -169,7 +169,8 @@ router.put('/users/:userId', authenticateToken, requireAdmin, async (req, res) =
       points,
       streakCount,
       kycStatus,
-      isVerified
+      isVerified,
+      isCreator
     } = req.body;
 
     const updateData = {};
@@ -179,6 +180,11 @@ router.put('/users/:userId', authenticateToken, requireAdmin, async (req, res) =
     if (streakCount !== undefined) updateData.streakCount = streakCount;
     if (kycStatus !== undefined) updateData.kycStatus = kycStatus;
     if (isVerified !== undefined) updateData.isVerified = isVerified;
+    
+    // Handle creator role assignment
+    if (isCreator !== undefined) {
+      updateData.role = isCreator ? 'creator' : 'user';
+    }
 
     const updatedUser = await prisma.user.update({
       where: { id: userId },
@@ -210,6 +216,199 @@ router.put('/users/:userId', authenticateToken, requireAdmin, async (req, res) =
       success: false,
       error: 'ADMIN_USER_UPDATE_ERROR',
       message: 'Failed to update user'
+    });
+  }
+});
+
+// Delete user permanently (admin)
+router.delete('/users/:userId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Check if user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, email: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'User not found'
+      });
+    }
+
+    // Delete user and all related data in a transaction
+    await prisma.$transaction(async (tx) => {
+      // Delete user activities
+      await tx.userActivity.deleteMany({
+        where: { userId: userId }
+      });
+
+      // Delete user rewards
+      await tx.userReward.deleteMany({
+        where: { userId: userId }
+      });
+
+      // Delete user badges
+      await tx.userBadge.deleteMany({
+        where: { userId: userId }
+      });
+
+      // Delete mining claims
+      await tx.miningClaim.deleteMany({
+        where: { userId: userId }
+      });
+
+      // Delete KYC submissions
+      await tx.kycSubmission.deleteMany({
+        where: { userId: userId }
+      });
+
+      // Delete user articles (if any)
+      await tx.article.deleteMany({
+        where: { authorId: userId }
+      });
+
+      // Delete referral data
+      await tx.referral.deleteMany({
+        where: {
+          OR: [
+            { referrerId: userId },
+            { referredId: userId }
+          ]
+        }
+      });
+
+      // Finally delete the user
+      await tx.user.delete({
+        where: { id: userId }
+      });
+    });
+
+    res.json({
+      success: true,
+      message: 'User and all related data deleted permanently'
+    });
+
+  } catch (error) {
+    console.error('Delete admin user error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'ADMIN_USER_DELETE_ERROR',
+      message: 'Failed to delete user'
+    });
+  }
+});
+
+// Toggle user achievement (admin)
+router.patch('/users/:userId/achievements/:achievementId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { userId, achievementId } = req.params;
+    const { isLocked } = req.body;
+
+    // Check if user exists
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, points: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'User not found'
+      });
+    }
+
+    // Check if achievement exists
+    const achievement = await prisma.badge.findUnique({
+      where: { id: achievementId },
+      select: { id: true, pointsValue: true }
+    });
+
+    if (!achievement) {
+      return res.status(404).json({
+        success: false,
+        error: 'ACHIEVEMENT_NOT_FOUND',
+        message: 'Achievement not found'
+      });
+    }
+
+    // Check if user has this achievement
+    let userAchievement = await prisma.userBadge.findFirst({
+      where: {
+        userId: userId,
+        badgeId: achievementId
+      }
+    });
+
+    // If user doesn't have the achievement and we're trying to unlock it, create it
+    if (!userAchievement && !isLocked) {
+      userAchievement = await prisma.userBadge.create({
+        data: {
+          userId: userId,
+          badgeId: achievementId,
+          isLocked: false
+        }
+      });
+    }
+    // If user doesn't have the achievement and we're trying to lock it, return error
+    else if (!userAchievement && isLocked) {
+      return res.status(400).json({
+        success: false,
+        error: 'ACHIEVEMENT_NOT_EARNED',
+        message: 'Cannot lock an achievement that the user has not earned'
+      });
+    }
+    // If user has the achievement, update its lock status
+    else if (userAchievement) {
+      await prisma.userBadge.update({
+        where: { id: userAchievement.id },
+        data: { isLocked: isLocked }
+      });
+    }
+
+    let message = '';
+    let pointsChange = 0;
+
+    if (isLocked) {
+      // Deduct points when locking achievement
+      pointsChange = -achievement.pointsValue;
+      message = `Achievement locked and ${achievement.pointsValue} points deducted from user balance`;
+    } else {
+      // Add points when unlocking achievement (whether it's new or existing)
+      pointsChange = achievement.pointsValue;
+      message = `Achievement unlocked and ${achievement.pointsValue} points added to user balance`;
+    }
+
+    // Update user points
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        points: {
+          increment: pointsChange
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: message,
+      data: {
+        achievementId: achievementId,
+        isLocked: isLocked,
+        pointsChange: pointsChange
+      }
+    });
+
+  } catch (error) {
+    console.error('Toggle user achievement error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'ADMIN_ACHIEVEMENT_TOGGLE_ERROR',
+      message: 'Failed to toggle achievement'
     });
   }
 });

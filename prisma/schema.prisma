@@ -134,6 +134,7 @@ model Badge {
   description   String?
   iconUrl       String?  @map("icon_url")
   pointsRequired Int     @map("points_required")
+  pointsValue   Int      @default(0) @map("points_value")
   category      String?
 
   // Relations
@@ -147,6 +148,7 @@ model UserBadge {
   userId    String   @map("user_id") @db.VarChar
   badgeId   String   @map("badge_id") @db.VarChar
   earnedAt  DateTime @default(now()) @map("earned_at")
+  isLocked  Boolean  @default(false) @map("is_locked")
 
   // Relations
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
