@@ -91,7 +91,7 @@ router.get('/profile', authenticateToken, async (req, res) => {
 // Update user profile
 router.put('/profile', authenticateToken, async (req, res) => {
   try {
-    const { username, displayName, firstName, lastName, bio, referralCode } = req.body;
+    const { username, displayName, firstName, lastName, bio } = req.body;
 
     // Check if username is already taken
     if (username) {
@@ -111,33 +111,6 @@ router.put('/profile', authenticateToken, async (req, res) => {
       }
     }
 
-    // Handle referral code if provided
-    let referredBy = null;
-    if (referralCode) {
-      const referrer = await prisma.user.findUnique({
-        where: { referralCode }
-      });
-      
-      if (referrer && referrer.id !== req.user.id) {
-        referredBy = referrer.id;
-        
-        // Give referral bonus points to referrer
-        await prisma.user.update({
-          where: { id: referrer.id },
-          data: { points: { increment: 100 } } // 100 points for successful referral
-        });
-        
-        // Create referral reward record
-        await prisma.referralReward.create({
-          data: {
-            referrerId: referrer.id,
-            refereeId: req.user.id,
-            pointsEarned: 100,
-            status: 'claimed'
-          }
-        });
-      }
-    }
 
     const updatedUser = await prisma.user.update({
       where: { id: req.user.id },

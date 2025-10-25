@@ -268,16 +268,6 @@ router.post('/google-mobile', async (req, res) => {
         where: { email }
       });
 
-      // Handle referral code if provided
-      let referredBy = null;
-      if (req.body.referralCode) {
-        const referrer = await prisma.user.findUnique({
-          where: { referralCode: req.body.referralCode }
-        });
-        if (referrer && referrer.id !== user?.id) {
-          referredBy = referrer.id;
-        }
-      }
 
       if (user) {
         // Update existing user with Google ID
@@ -291,7 +281,6 @@ router.post('/google-mobile', async (req, res) => {
             avatarUrl: picture,
             lastLogin: new Date(),
             referralCode: user.referralCode || generateUniqueReferralCode(),
-            referredBy: referredBy || user.referredBy,
           }
         });
       } else {
@@ -308,28 +297,9 @@ router.post('/google-mobile', async (req, res) => {
             avatarUrl: picture,
             lastLogin: new Date(),
             referralCode: generateUniqueReferralCode(),
-            referredBy: referredBy,
           }
         });
 
-        // If user was referred, give referral bonus
-        if (referredBy) {
-          // Give referral bonus points to referrer
-          await prisma.user.update({
-            where: { id: referredBy },
-            data: { points: { increment: 100 } }
-          });
-          
-          // Create referral reward record
-          await prisma.referralReward.create({
-            data: {
-              referrerId: referredBy,
-              refereeId: user.id,
-              pointsEarned: 100,
-              status: 'claimed'
-            }
-          });
-        }
       }
     } else {
       // Update last login
