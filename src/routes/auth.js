@@ -96,32 +96,30 @@ router.get('/google/callback', async (req, res) => {
           }
         });
       } else {
-        // Create new user
-        const username = email.split('@')[0] + '_' + googleId.slice(-4);
-        
-        // Check if email matches admin email from environment
-        const adminEmails = process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(',').map(e => e.trim()) : [];
-        const isAdmin = adminEmails.includes(email);
-        
-        user = await prisma.user.create({
+        // For new users, don't create account yet - store temporary session data
+        // This will be used to create the account after profile completion and referral choice
+        const tempSessionData = {
+          googleId,
+          email,
+          displayName: name,
+          firstName: given_name || name?.split(' ')[0] || '',
+          lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
+          avatarUrl: picture,
+          isNewUser: true
+        };
+
+        // Store temporary session data (we'll use this in the finalize endpoint)
+        // For now, return the temp data to frontend
+        return res.json({
+          success: true,
+          message: 'New user - profile completion required',
           data: {
-            googleId,
-            email,
-            username,
-            displayName: name,
-            firstName: given_name || name?.split(' ')[0] || '',
-            lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
-            avatarUrl: picture,
-            lastLogin: new Date(),
-            referralCode: generateUniqueReferralCode(),
-            role: isAdmin ? 'admin' : 'user',
-            isVerified: isAdmin ? true : false
+            user: tempSessionData,
+            accessToken: null, // No token until account is finalized
+            refreshToken: null,
+            requiresProfileCompletion: true
           }
         });
-        
-        if (isAdmin) {
-          console.log(`✅ Admin user created: ${email}`);
-        }
       }
     } else {
       // Update last login

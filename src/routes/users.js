@@ -120,7 +120,6 @@ router.put('/profile', authenticateToken, async (req, res) => {
         ...(firstName && { firstName }),
         ...(lastName && { lastName }),
         ...(bio && { bio }),
-        ...(referredBy && { referredBy })
       },
       select: {
         id: true,
