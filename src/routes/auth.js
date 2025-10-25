@@ -387,6 +387,16 @@ router.post('/check-username', async (req, res) => {
       });
     }
 
+    // Check if username contains only letters, numbers, and underscores
+    const usernameRegex = /^[a-zA-Z0-9_]+$/;
+    if (!usernameRegex.test(username.trim())) {
+      return res.status(400).json({
+        success: false,
+        error: 'INVALID_USERNAME_FORMAT',
+        message: 'Username can only contain letters, numbers, and underscores (_)'
+      });
+    }
+
     // Check if username is already taken
     const existingUsername = await prisma.user.findUnique({
       where: { username: username.trim() }
@@ -448,6 +458,16 @@ router.post('/finalize-account', async (req, res) => {
         success: false,
         error: 'USER_ALREADY_EXISTS',
         message: 'User account already exists'
+      });
+    }
+
+    // Check if username contains only letters, numbers, and underscores
+    const usernameRegex = /^[a-zA-Z0-9_]+$/;
+    if (!usernameRegex.test(username.trim())) {
+      return res.status(400).json({
+        success: false,
+        error: 'INVALID_USERNAME_FORMAT',
+        message: 'Username can only contain letters, numbers, and underscores (_)'
       });
     }
 
