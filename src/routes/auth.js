@@ -108,8 +108,16 @@ router.get('/google/callback', async (req, res) => {
           isNewUser: true
         };
 
-        // Store temporary session data (we'll use this in the finalize endpoint)
-        // For now, return the temp data to frontend
+        // For new users, redirect back to app with temp data
+        // The app will handle the profile completion flow
+        if (state && state !== 'default' && /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i.test(state)) {
+          const returnUrl = state;
+          const userDataParam = encodeURIComponent(JSON.stringify(tempSessionData));
+          const redirectTo = `${returnUrl}#accessToken=null&refreshToken=null&requiresProfileCompletion=true&userData=${userDataParam}`;
+          return res.redirect(302, redirectTo);
+        }
+
+        // Default: return JSON response (mobile or direct API usage)
         return res.json({
           success: true,
           message: 'New user - profile completion required',
