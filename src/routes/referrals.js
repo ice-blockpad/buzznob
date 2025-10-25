@@ -130,6 +130,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
         username: true,
         displayName: true,
         avatarUrl: true,
+        avatarData: true,
         role: true,
         createdAt: true,
         miningSessions: {
@@ -201,6 +202,7 @@ router.get('/history', authenticateToken, async (req, res) => {
         username: true,
         displayName: true,
         avatarUrl: true,
+        avatarData: true,
         points: true,
         role: true,
         createdAt: true,
