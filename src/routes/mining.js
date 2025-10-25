@@ -177,7 +177,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
     }
 
     // Calculate mining stats
-    const baseRate = 10; // 10 tokens per 6-hour session
+    const baseRate = 20; // 20 tokens per 6-hour session
     const miningCycleDuration = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
     
     // Calculate active referral bonus (10% per active referred user who is also mining)
@@ -342,7 +342,7 @@ router.post('/start', authenticateToken, async (req, res) => {
       activeReferrals = activeReferredUsers.length;
     }
 
-    const baseReward = 10; // 10 tokens per 6-hour session
+    const baseReward = 20; // 20 tokens per 6-hour session
     const referralBonus = activeReferrals * 10; // 10% per active referral
     const initialRate = baseReward + (baseReward * referralBonus / 100);
     

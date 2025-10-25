@@ -135,7 +135,7 @@ router.get('/daily/status', authenticateToken, async (req, res) => {
     });
 
     // Calculate potential reward
-    let baseReward = 10;
+    let baseReward = 20;
     let streakBonus = 0;
 
     if (user.streakCount >= 7) {

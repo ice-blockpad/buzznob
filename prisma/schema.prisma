@@ -179,8 +179,8 @@ model MiningSession {
   userId        String   @map("user_id") @db.VarChar
   startedAt     DateTime @default(now()) @map("started_at")
   duration      Int      @default(21600) // 6 hours in seconds
-  baseReward    Int      @default(10) @map("base_reward") // Base 10 tokens per 6-hour session
-  currentRate   Float    @default(10) @map("current_rate") // Current mining rate (tokens per 6 hours)
+  baseReward    Int      @default(20) @map("base_reward") // Base 20 tokens per 6-hour session
+  currentRate   Float    @default(20) @map("current_rate") // Current mining rate (tokens per 6 hours)
   totalMined    Float    @default(0) @map("total_mined") // Total tokens mined so far
   lastUpdate    DateTime @default(now()) @map("last_update") // Last time rate was updated
   isActive      Boolean  @default(true) @map("is_active")
