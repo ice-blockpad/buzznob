@@ -258,11 +258,20 @@ router.get('/stats', authenticateToken, async (req, res) => {
     
     // Calculate total earned
     const totalEarned = user.miningClaims?.reduce((sum, claim) => sum + claim.amount, 0) || 0;
+    
+    // Count completed mining sessions
+    const completedSessions = await prisma.miningSession.count({
+      where: {
+        userId: userId,
+        isCompleted: true
+      }
+    });
 
     res.json({
       success: true,
       data: {
         miningRate: currentMiningRate || totalMiningRate, // Show current rate if mining, otherwise potential rate
+        currentMiningRate: currentMiningRate, // Current rate for active session
         baseRate: baseRate,
         activeReferralBonus: activeReferralBonus,
         activeReferralCount: user.referrals ? user.referrals.length : 0,
@@ -272,6 +281,8 @@ router.get('/stats', authenticateToken, async (req, res) => {
         nextClaimTime: nextClaimTime ? nextClaimTime.toISOString() : null,
         timeRemaining,
         isMining,
+        sessionStartTime: currentSession ? currentSession.startedAt.toISOString() : null,
+        completedSessions,
         todayEarned: 0 // TODO: Calculate today's earnings
       }
     });
