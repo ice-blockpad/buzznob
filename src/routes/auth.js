@@ -268,7 +268,6 @@ router.post('/google-mobile', async (req, res) => {
         where: { email }
       });
 
-
       if (user) {
         // Update existing user with Google ID
         user = await prisma.user.update({
@@ -284,22 +283,30 @@ router.post('/google-mobile', async (req, res) => {
           }
         });
       } else {
-        // Create new user
-        const username = email.split('@')[0] + '_' + googleId.slice(-4);
-        user = await prisma.user.create({
+        // For new users, don't create account yet - store temporary session data
+        // This will be used to create the account after profile completion and referral choice
+        const tempSessionData = {
+          googleId,
+          email,
+          displayName: name,
+          firstName: given_name || name?.split(' ')[0] || '',
+          lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
+          avatarUrl: picture,
+          isNewUser: true
+        };
+
+        // Store temporary session data (we'll use this in the finalize endpoint)
+        // For now, return the temp data to frontend
+        return res.json({
+          success: true,
+          message: 'New user - profile completion required',
           data: {
-            googleId,
-            email,
-            username,
-            displayName: name,
-            firstName: given_name || name?.split(' ')[0] || '',
-            lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
-            avatarUrl: picture,
-            lastLogin: new Date(),
-            referralCode: generateUniqueReferralCode(),
+            user: tempSessionData,
+            accessToken: null, // No token until account is finalized
+            refreshToken: null,
+            requiresProfileCompletion: true
           }
         });
-
       }
     } else {
       // Update last login
@@ -361,6 +368,170 @@ router.post('/google-mobile', async (req, res) => {
   }
 });
 
+
+// Finalize user account creation after profile completion and referral choice
+router.post('/finalize-account', async (req, res) => {
+  try {
+    const { 
+      googleId, 
+      email, 
+      displayName, 
+      firstName, 
+      lastName, 
+      avatarUrl,
+      username,
+      bio,
+      referralCode 
+    } = req.body;
+
+    if (!googleId || !email || !username) {
+      return res.status(400).json({
+        success: false,
+        error: 'MISSING_REQUIRED_FIELDS',
+        message: 'Google ID, email, and username are required'
+      });
+    }
+
+    // Check if user already exists (shouldn't happen, but safety check)
+    let user = await prisma.user.findUnique({
+      where: { googleId }
+    });
+
+    if (user) {
+      return res.status(400).json({
+        success: false,
+        error: 'USER_ALREADY_EXISTS',
+        message: 'User account already exists'
+      });
+    }
+
+    // Check if username is already taken
+    const existingUsername = await prisma.user.findUnique({
+      where: { username }
+    });
+
+    if (existingUsername) {
+      return res.status(400).json({
+        success: false,
+        error: 'USERNAME_TAKEN',
+        message: 'Username is already taken'
+      });
+    }
+
+    // Check if email matches admin email from environment
+    const adminEmails = process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(',').map(e => e.trim()) : [];
+    const isAdmin = adminEmails.includes(email);
+
+    // Create the user account
+    user = await prisma.user.create({
+      data: {
+        googleId,
+        email,
+        username,
+        displayName,
+        firstName,
+        lastName,
+        bio: bio || '',
+        avatarUrl,
+        lastLogin: new Date(),
+        referralCode: generateUniqueReferralCode(),
+        role: isAdmin ? 'admin' : 'user',
+        isVerified: isAdmin ? true : false,
+        points: 0 // Start with 0 points
+      }
+    });
+
+    // Handle referral code if provided
+    if (referralCode) {
+      try {
+        // Find the referrer
+        const referrer = await prisma.user.findUnique({
+          where: { referralCode }
+        });
+
+        if (referrer) {
+          // Award points to both users
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { points: { increment: 100 } }
+          });
+
+          await prisma.user.update({
+            where: { id: referrer.id },
+            data: { points: { increment: 50 } }
+          });
+
+          // Create referral reward record
+          await prisma.referralReward.create({
+            data: {
+              referrerId: referrer.id,
+              referredId: user.id,
+              referrerReward: 50,
+              referredReward: 100,
+              status: 'completed'
+            }
+          });
+
+          console.log(`✅ Referral reward processed: ${referrer.email} -> ${user.email}`);
+        }
+      } catch (referralError) {
+        console.error('Referral processing error:', referralError);
+        // Don't fail account creation if referral fails
+      }
+    }
+
+    // Generate tokens
+    const accessTokenJWT = generateToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+
+    // Create user session in database
+    await prisma.userSession.create({
+      data: {
+        userId: user.id,
+        accessToken: accessTokenJWT,
+        refreshToken: refreshToken,
+        deviceInfo: req.headers['user-agent'] || 'Mobile App',
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Account created successfully',
+      data: {
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          displayName: user.displayName,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          bio: user.bio,
+          avatarUrl: user.avatarUrl,
+          points: user.points,
+          streakCount: user.streakCount,
+          referralCode: user.referralCode,
+          role: user.role,
+          isActive: user.isActive,
+          isVerified: user.isVerified,
+          kycStatus: user.kycStatus
+        },
+        accessToken: accessTokenJWT,
+        refreshToken
+      }
+    });
+
+  } catch (error) {
+    console.error('Finalize account error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'ACCOUNT_CREATION_ERROR',
+      message: 'Failed to create account'
+    });
+  }
+});
 
 // Refresh token
 router.post('/refresh', async (req, res) => {
