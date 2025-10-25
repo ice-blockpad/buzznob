@@ -512,37 +512,47 @@ router.post('/finalize-account', async (req, res) => {
       try {
         // Find the referrer
         const referrer = await prisma.user.findUnique({
-          where: { referralCode }
+          where: { referralCode: referralCode.trim() }
         });
 
-        if (referrer) {
-          // Award points to both users
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { points: { increment: 100 } }
+        if (!referrer) {
+          return res.status(400).json({
+            success: false,
+            error: 'INVALID_REFERRAL_CODE',
+            message: 'Referral code is invalid or does not exist'
           });
-
-          await prisma.user.update({
-            where: { id: referrer.id },
-            data: { points: { increment: 50 } }
-          });
-
-          // Create referral reward record
-          await prisma.referralReward.create({
-            data: {
-              referrerId: referrer.id,
-              referredId: user.id,
-              referrerReward: 50,
-              referredReward: 100,
-              status: 'completed'
-            }
-          });
-
-          console.log(`✅ Referral reward processed: ${referrer.email} -> ${user.email}`);
         }
+
+        // Award points to both users
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { points: { increment: 100 } }
+        });
+
+        await prisma.user.update({
+          where: { id: referrer.id },
+          data: { points: { increment: 50 } }
+        });
+
+        // Create referral reward record
+        await prisma.referralReward.create({
+          data: {
+            referrerId: referrer.id,
+            referredId: user.id,
+            referrerReward: 50,
+            referredReward: 100,
+            status: 'completed'
+          }
+        });
+
+        console.log(`✅ Referral reward processed: ${referrer.email} -> ${user.email}`);
       } catch (referralError) {
         console.error('Referral processing error:', referralError);
-        // Don't fail account creation if referral fails
+        return res.status(500).json({
+          success: false,
+          error: 'REFERRAL_PROCESSING_ERROR',
+          message: 'Failed to process referral code. Please try again.'
+        });
       }
     }
 
