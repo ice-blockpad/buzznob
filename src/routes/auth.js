@@ -384,11 +384,11 @@ router.post('/finalize-account', async (req, res) => {
       referralCode 
     } = req.body;
 
-    if (!googleId || !email || !username) {
+    if (!googleId || !email || !username || !displayName) {
       return res.status(400).json({
         success: false,
         error: 'MISSING_REQUIRED_FIELDS',
-        message: 'Google ID, email, and username are required'
+        message: 'Google ID, email, username, and display name are required'
       });
     }
 
@@ -429,8 +429,8 @@ router.post('/finalize-account', async (req, res) => {
         email,
         username,
         displayName,
-        firstName,
-        lastName,
+        firstName: displayName.split(' ')[0] || '', // Extract first name from display name
+        lastName: displayName.split(' ').slice(1).join(' ') || '', // Extract last name from display name
         bio: bio || '',
         avatarUrl,
         lastLogin: new Date(),
