@@ -448,6 +448,24 @@ router.post('/finalize-account', async (req, res) => {
       });
     }
 
+    // Validate referral code if provided (do this first for both existing and new users)
+    let referrerId = null;
+    if (referralCode) {
+      const referrer = await prisma.user.findUnique({
+        where: { referralCode: referralCode.trim() }
+      });
+      
+      if (!referrer) {
+        return res.status(400).json({
+          success: false,
+          error: 'INVALID_REFERRAL_CODE',
+          message: 'Referral code is invalid or does not exist'
+        });
+      }
+      
+      referrerId = referrer.id;
+    }
+
     // Check if user already exists (may happen if OAuth updated existing user)
     let user = await prisma.user.findUnique({
       where: { googleId }
@@ -493,24 +511,6 @@ router.post('/finalize-account', async (req, res) => {
       // Check if email matches admin email from environment
       const adminEmails = process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(',').map(e => e.trim()) : [];
       const isAdmin = adminEmails.includes(email);
-
-      // Validate referral code if provided
-      let referrerId = null;
-      if (referralCode) {
-        const referrer = await prisma.user.findUnique({
-          where: { referralCode: referralCode.trim() }
-        });
-        
-        if (!referrer) {
-          return res.status(400).json({
-            success: false,
-            error: 'INVALID_REFERRAL_CODE',
-            message: 'Referral code is invalid or does not exist'
-          });
-        }
-        
-        referrerId = referrer.id;
-      }
 
       // Create the user account
       user = await prisma.user.create({
