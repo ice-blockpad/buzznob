@@ -494,6 +494,24 @@ router.post('/finalize-account', async (req, res) => {
       const adminEmails = process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(',').map(e => e.trim()) : [];
       const isAdmin = adminEmails.includes(email);
 
+      // Validate referral code if provided
+      let referrerId = null;
+      if (referralCode) {
+        const referrer = await prisma.user.findUnique({
+          where: { referralCode: referralCode.trim() }
+        });
+        
+        if (!referrer) {
+          return res.status(400).json({
+            success: false,
+            error: 'INVALID_REFERRAL_CODE',
+            message: 'Referral code is invalid or does not exist'
+          });
+        }
+        
+        referrerId = referrer.id;
+      }
+
       // Create the user account
       user = await prisma.user.create({
         data: {
@@ -507,6 +525,7 @@ router.post('/finalize-account', async (req, res) => {
           avatarUrl,
           lastLogin: new Date(),
           referralCode: generateUniqueReferralCode(),
+          referredBy: referrerId,
           role: isAdmin ? 'admin' : 'user',
           isVerified: isAdmin ? true : false,
           points: 0 // Start with 0 points
@@ -515,20 +534,12 @@ router.post('/finalize-account', async (req, res) => {
     }
 
     // Handle referral code if provided
-    if (referralCode) {
+    if (referralCode && referrerId) {
       try {
-        // Find the referrer
+        // Get the referrer (we already validated it during user creation)
         const referrer = await prisma.user.findUnique({
-          where: { referralCode: referralCode.trim() }
+          where: { id: referrerId }
         });
-
-        if (!referrer) {
-          return res.status(400).json({
-            success: false,
-            error: 'INVALID_REFERRAL_CODE',
-            message: 'Referral code is invalid or does not exist'
-          });
-        }
 
         // Award points to both users
         await prisma.user.update({
@@ -545,9 +556,8 @@ router.post('/finalize-account', async (req, res) => {
         await prisma.referralReward.create({
           data: {
             referrerId: referrer.id,
-            referredId: user.id,
-            referrerReward: 50,
-            referredReward: 100,
+            refereeId: user.id,
+            pointsEarned: 50, // Points earned by the referrer
             status: 'completed'
           }
         });
