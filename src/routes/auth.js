@@ -374,6 +374,46 @@ router.post('/google-mobile', async (req, res) => {
   }
 });
 
+// Check username availability
+router.post('/check-username', async (req, res) => {
+  try {
+    const { username } = req.body;
+
+    if (!username || username.trim().length < 3) {
+      return res.status(400).json({
+        success: false,
+        error: 'INVALID_USERNAME',
+        message: 'Username must be at least 3 characters long'
+      });
+    }
+
+    // Check if username is already taken
+    const existingUsername = await prisma.user.findUnique({
+      where: { username: username.trim() }
+    });
+
+    if (existingUsername) {
+      return res.status(400).json({
+        success: false,
+        error: 'USERNAME_TAKEN',
+        message: 'Username is already taken'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Username is available'
+    });
+
+  } catch (error) {
+    console.error('Username check error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'INTERNAL_ERROR',
+      message: 'Failed to check username availability'
+    });
+  }
+});
 
 // Finalize user account creation after profile completion and referral choice
 router.post('/finalize-account', async (req, res) => {
