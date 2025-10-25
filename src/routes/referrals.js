@@ -131,18 +131,48 @@ router.get('/stats', authenticateToken, async (req, res) => {
         displayName: true,
         avatarUrl: true,
         role: true,
-        createdAt: true
+        createdAt: true,
+        miningSessions: {
+          where: { isActive: true },
+          orderBy: { startedAt: 'desc' },
+          take: 1,
+          select: {
+            startedAt: true,
+            duration: true
+          }
+        }
       },
       orderBy: { createdAt: 'desc' },
       take: 5
     });
+
+    // Add mining status based on active mining sessions (active if mining started within last 6 hours)
+    const now = new Date();
+    const sixHoursAgo = new Date(now - 6 * 60 * 60 * 1000);
+    
+    const recentReferralsWithStatus = recentReferrals.map(referral => {
+      const latestMiningSession = referral.miningSessions[0];
+      const isActive = latestMiningSession && latestMiningSession.startedAt >= sixHoursAgo;
+      
+      return {
+        ...referral,
+        isActive,
+        miningSessions: undefined // Remove from response
+      };
+    });
+
+    // Count active and inactive referrals
+    const activeCount = recentReferralsWithStatus.filter(r => r.isActive).length;
+    const inactiveCount = recentReferralsWithStatus.filter(r => !r.isActive).length;
 
     res.json({
       success: true,
       data: {
         referralCount,
         totalPointsEarned: referralRewards._sum.pointsEarned || 0,
-        recentReferrals
+        recentReferrals: recentReferralsWithStatus,
+        activeCount,
+        inactiveCount
       }
     });
 
@@ -173,21 +203,51 @@ router.get('/history', authenticateToken, async (req, res) => {
         avatarUrl: true,
         points: true,
         role: true,
-        createdAt: true
+        createdAt: true,
+        miningSessions: {
+          where: { isActive: true },
+          orderBy: { startedAt: 'desc' },
+          take: 1,
+          select: {
+            startedAt: true,
+            duration: true
+          }
+        }
       },
       orderBy: { createdAt: 'desc' },
       skip,
       take: limit
     });
 
+    // Add mining status based on active mining sessions (active if mining started within last 6 hours)
+    const now = new Date();
+    const sixHoursAgo = new Date(now - 6 * 60 * 60 * 1000);
+    
+    const referralsWithStatus = referrals.map(referral => {
+      const latestMiningSession = referral.miningSessions[0];
+      const isActive = latestMiningSession && latestMiningSession.startedAt >= sixHoursAgo;
+      
+      return {
+        ...referral,
+        isActive,
+        miningSessions: undefined // Remove from response
+      };
+    });
+
     const totalCount = await prisma.user.count({
       where: { referredBy: userId }
     });
 
+    // Count active and inactive referrals
+    const activeCount = referralsWithStatus.filter(r => r.isActive).length;
+    const inactiveCount = referralsWithStatus.filter(r => !r.isActive).length;
+
     res.json({
       success: true,
       data: {
-        referrals,
+        referrals: referralsWithStatus,
+        activeCount,
+        inactiveCount,
         pagination: {
           page,
           limit,

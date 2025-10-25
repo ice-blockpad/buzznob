@@ -46,6 +46,7 @@ model User {
   rewards       Reward[]
   userBadges    UserBadge[]
   leaderboards  Leaderboard[]
+  miningSessions MiningSession[]
   miningClaims  MiningClaim[]
   referrals     User[] @relation("UserReferrals")
   referredByUser User? @relation("UserReferrals", fields: [referredBy], references: [id])
@@ -171,6 +172,26 @@ model Leaderboard {
 
   @@unique([userId, period])
   @@map("leaderboards")
+}
+
+model MiningSession {
+  id            String   @id @default(cuid()) @db.VarChar
+  userId        String   @map("user_id") @db.VarChar
+  startedAt     DateTime @default(now()) @map("started_at")
+  duration      Int      @default(21600) // 6 hours in seconds
+  baseReward    Int      @default(10) @map("base_reward") // Base 10 tokens per 6-hour session
+  currentRate   Float    @default(10) @map("current_rate") // Current mining rate (tokens per 6 hours)
+  totalMined    Float    @default(0) @map("total_mined") // Total tokens mined so far
+  lastUpdate    DateTime @default(now()) @map("last_update") // Last time rate was updated
+  isActive      Boolean  @default(true) @map("is_active")
+  isCompleted   Boolean  @default(false) @map("is_completed") // Whether the session has been completed and tokens claimed
+  completedAt   DateTime? @map("completed_at") // When the session was completed
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("mining_sessions")
 }
 
 model MiningClaim {

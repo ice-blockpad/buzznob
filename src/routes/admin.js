@@ -247,7 +247,7 @@ router.delete('/users/:userId', authenticateToken, requireAdmin, async (req, res
       });
 
       // Delete user rewards
-      await tx.userReward.deleteMany({
+      await tx.reward.deleteMany({
         where: { userId: userId }
       });
 
@@ -271,12 +271,12 @@ router.delete('/users/:userId', authenticateToken, requireAdmin, async (req, res
         where: { authorId: userId }
       });
 
-      // Delete referral data
-      await tx.referral.deleteMany({
+      // Delete referral rewards
+      await tx.referralReward.deleteMany({
         where: {
           OR: [
             { referrerId: userId },
-            { referredId: userId }
+            { refereeId: userId }
           ]
         }
       });
