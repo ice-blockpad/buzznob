@@ -448,64 +448,71 @@ router.post('/finalize-account', async (req, res) => {
       });
     }
 
-    // Check if user already exists (shouldn't happen, but safety check)
+    // Check if user already exists (may happen if OAuth updated existing user)
     let user = await prisma.user.findUnique({
       where: { googleId }
     });
 
     if (user) {
-      return res.status(400).json({
-        success: false,
-        error: 'USER_ALREADY_EXISTS',
-        message: 'User account already exists'
+      // User already exists, update with new profile data
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          username,
+          displayName,
+          firstName: displayName.split(' ')[0] || '',
+          lastName: displayName.split(' ').slice(1).join(' ') || '',
+          bio: bio || '',
+          lastLogin: new Date(),
+        }
       });
-    }
-
-    // Check if username contains only letters, numbers, and underscores
-    const usernameRegex = /^[a-zA-Z0-9_]+$/;
-    if (!usernameRegex.test(username.trim())) {
-      return res.status(400).json({
-        success: false,
-        error: 'INVALID_USERNAME_FORMAT',
-        message: 'Username can only contain letters, numbers, and underscores (_)'
-      });
-    }
-
-    // Check if username is already taken
-    const existingUsername = await prisma.user.findUnique({
-      where: { username }
-    });
-
-    if (existingUsername) {
-      return res.status(400).json({
-        success: false,
-        error: 'USERNAME_TAKEN',
-        message: 'Username is already taken'
-      });
-    }
-
-    // Check if email matches admin email from environment
-    const adminEmails = process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(',').map(e => e.trim()) : [];
-    const isAdmin = adminEmails.includes(email);
-
-    // Create the user account
-    user = await prisma.user.create({
-      data: {
-        googleId,
-        email,
-        username,
-        displayName,
-        firstName: displayName.split(' ')[0] || '', // Extract first name from display name
-        lastName: displayName.split(' ').slice(1).join(' ') || '', // Extract last name from display name
-        bio: bio || '',
-        avatarUrl,
-        lastLogin: new Date(),
-        referralCode: generateUniqueReferralCode(),
-        role: isAdmin ? 'admin' : 'user',
-        isVerified: isAdmin ? true : false,
-        points: 0 // Start with 0 points
+    } else {
+      // Check if username contains only letters, numbers, and underscores
+      const usernameRegex = /^[a-zA-Z0-9_]+$/;
+      if (!usernameRegex.test(username.trim())) {
+        return res.status(400).json({
+          success: false,
+          error: 'INVALID_USERNAME_FORMAT',
+          message: 'Username can only contain letters, numbers, and underscores (_)'
+        });
       }
-    });
+
+      // Check if username is already taken
+      const existingUsername = await prisma.user.findUnique({
+        where: { username }
+      });
+
+      if (existingUsername) {
+        return res.status(400).json({
+          success: false,
+          error: 'USERNAME_TAKEN',
+          message: 'Username is already taken'
+        });
+      }
+
+      // Check if email matches admin email from environment
+      const adminEmails = process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(',').map(e => e.trim()) : [];
+      const isAdmin = adminEmails.includes(email);
+
+      // Create the user account
+      user = await prisma.user.create({
+        data: {
+          googleId,
+          email,
+          username,
+          displayName,
+          firstName: displayName.split(' ')[0] || '', // Extract first name from display name
+          lastName: displayName.split(' ').slice(1).join(' ') || '', // Extract last name from display name
+          bio: bio || '',
+          avatarUrl,
+          lastLogin: new Date(),
+          referralCode: generateUniqueReferralCode(),
+          role: isAdmin ? 'admin' : 'user',
+          isVerified: isAdmin ? true : false,
+          points: 0 // Start with 0 points
+        }
+      });
+    }
 
     // Handle referral code if provided
     if (referralCode) {
