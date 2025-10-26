@@ -152,11 +152,11 @@ router.get('/stats', authenticateToken, async (req, res) => {
               json_build_object(
                 'id', rr.id,
                 'username', rr.username,
-                'displayName', rr.displayName,
-                'avatarUrl', rr.avatarUrl,
-                'avatarData', rr.avatarData,
+                'displayName', rr."displayName",
+                'avatarUrl', rr."avatarUrl",
+                'avatarData', rr."avatarData",
                 'role', rr.role,
-                'createdAt', rr.createdAt,
+                'createdAt', rr."createdAt",
                 'isActive', rr.is_active
               )
             ) FILTER (WHERE rr.id IS NOT NULL), 
