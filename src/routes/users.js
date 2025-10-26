@@ -3,82 +3,62 @@ const { prisma } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const upload = require('../middleware/upload');
+const { deduplicateRequest } = require('../middleware/deduplication');
 
 const router = express.Router();
 
 // Get current user profile
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        googleId: true,
-        walletAddress: true,
-        displayName: true,
-        role: true,
-        firstName: true,
-        lastName: true,
-        avatarUrl: true,
-        avatarData: true,
-        avatarType: true,
-        points: true,
-        streakCount: true,
-        lastLogin: true,
-        referralCode: true,
-        role: true,
-        isActive: true,
-        isVerified: true,
-        kycStatus: true,
-        bio: true,
-        createdAt: true,
-        updatedAt: true,
-        _count: {
-          select: {
-            activities: true,
-            userBadges: true
-          }
-        }
+    const requestKey = `profile:${req.user.id}`;
+    
+    const result = await deduplicateRequest(requestKey, async () => {
+      // Use a single query with raw SQL for better performance
+      const result = await prisma.$queryRaw`
+        SELECT 
+          u.id, u.username, u.email, u.google_id as "googleId", u.wallet_address as "walletAddress",
+          u.display_name as "displayName", u.role, u.first_name as "firstName", u.last_name as "lastName",
+          u.avatar_url as "avatarUrl", u.avatar_data as "avatarData", u.avatar_type as "avatarType",
+          u.points, u.streak_count as "streakCount", u.last_login as "lastLogin", 
+          u.referral_code as "referralCode", u.is_active as "isActive", u.is_verified as "isVerified",
+          u.kyc_status as "kycStatus", u.bio, u.created_at as "createdAt", u.updated_at as "updatedAt",
+          COUNT(DISTINCT ua.id) as "totalArticlesRead",
+          COUNT(DISTINCT ub.id) as "achievementsCount",
+          (SELECT COUNT(*) FROM users WHERE points > u.points) + 1 as rank
+        FROM users u
+        LEFT JOIN user_activities ua ON u.id = ua.user_id
+        LEFT JOIN user_badges ub ON u.id = ub.user_id
+        WHERE u.id = ${req.user.id}
+        GROUP BY u.id
+      `;
+
+      if (!result || result.length === 0) {
+        throw new Error('USER_NOT_FOUND');
       }
+
+      const user = result[0];
+      return {
+      ...user,
+        totalArticlesRead: parseInt(user.totalArticlesRead) || 0,
+        achievementsCount: parseInt(user.achievementsCount) || 0,
+        rank: parseInt(user.rank) || 1
+      };
     });
 
-    if (!user) {
+    res.json({
+      success: true,
+      data: { user: result }
+    });
+
+  } catch (error) {
+    if (error.message === 'USER_NOT_FOUND') {
       return res.status(404).json({
         success: false,
         error: 'USER_NOT_FOUND',
         message: 'User not found'
       });
     }
-
-    // Calculate user's rank (how many users have more points)
-    const usersWithMorePoints = await prisma.user.count({
-      where: {
-        points: {
-          gt: user.points
-        }
-      }
-    });
-    const userRank = usersWithMorePoints + 1;
-
-    // Add computed fields
-    const userWithStats = {
-      ...user,
-      totalArticlesRead: user._count.activities,
-      achievementsCount: user._count.userBadges,
-      rank: userRank
-    };
-
-    // Remove the _count field
-    delete userWithStats._count;
-
-    res.json({
-      success: true,
-      data: { user: userWithStats }
-    });
-
-  } catch (error) {
+    
     console.error('Get profile error:', error);
     res.status(500).json({
       success: false,

@@ -2,6 +2,7 @@ const express = require('express');
 const { prisma } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
+const { deduplicateRequest } = require('../middleware/deduplication');
 
 const router = express.Router();
 
@@ -112,69 +113,82 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
 router.get('/daily/status', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
+    const requestKey = `daily:status:${userId}`;
+    
+    const status = await deduplicateRequest(requestKey, async () => {
     const now = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
 
-    // Check if user claimed within the last 24 hours
-    const recentClaim = await prisma.dailyReward.findFirst({
-      where: {
-        userId,
-        claimedAt: {
-          gte: twentyFourHoursAgo
-        }
-      },
-      orderBy: {
-        claimedAt: 'desc'
+      // Single query to get both recent claim and user streak
+      const result = await prisma.$queryRaw`
+        SELECT 
+          u.streak_count as "streakCount",
+          dr.claimed_at as "lastClaimedAt",
+          dr.points_earned as "lastPointsEarned",
+          dr.streak_count as "lastStreakCount",
+          dr.streak_bonus as "lastStreakBonus"
+        FROM users u
+        LEFT JOIN daily_rewards dr ON u.id = dr.user_id 
+          AND dr.claimed_at >= ${twentyFourHoursAgo}
+        WHERE u.id = ${userId}
+        ORDER BY dr.claimed_at DESC
+        LIMIT 1
+      `;
+
+      if (!result || result.length === 0) {
+        throw new Error('USER_NOT_FOUND');
       }
-    });
 
-    // Get user streak count
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { streakCount: true }
-    });
-
-    // Calculate potential reward
-    let baseReward = 20;
+      const data = result[0];
+      const baseReward = 20;
     let streakBonus = 0;
 
-    if (user.streakCount >= 7) {
+      if (data.streakCount >= 7) {
       streakBonus = 20;
-    } else if (user.streakCount >= 3) {
+      } else if (data.streakCount >= 3) {
       streakBonus = 10;
     }
 
-    // Calculate cooldown information
+      const totalReward = baseReward + streakBonus;
+      
     let isOnCooldown = false;
     let nextAvailableAt = null;
     let hoursRemaining = 0;
 
-    if (recentClaim) {
+      if (data.lastClaimedAt) {
       isOnCooldown = true;
-      nextAvailableAt = new Date(recentClaim.claimedAt.getTime() + (24 * 60 * 60 * 1000));
+        nextAvailableAt = new Date(new Date(data.lastClaimedAt).getTime() + (24 * 60 * 60 * 1000));
       hoursRemaining = Math.ceil((nextAvailableAt - now) / (1000 * 60 * 60));
     }
 
-    res.json({
-      success: true,
-      data: {
+      return {
         isOnCooldown,
         nextAvailableAt,
         hoursRemaining,
-        streakCount: user.streakCount,
         baseReward,
         streakBonus,
-        totalReward: baseReward + streakBonus,
-        lastClaimed: recentClaim?.claimedAt || null
-      }
+        totalReward,
+        currentStreak: parseInt(data.streakCount) || 0
+      };
+    });
+
+    res.json({
+      success: true,
+      data: status
     });
 
   } catch (error) {
-    console.error('Daily reward status error:', error);
+    if (error.message === 'USER_NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    console.error('Get daily status error:', error);
     res.status(500).json({
       success: false,
-      error: 'DAILY_REWARD_STATUS_ERROR',
-      message: 'Failed to get daily reward status'
+      message: 'Failed to fetch daily status'
     });
   }
 });
@@ -361,7 +375,9 @@ router.get('/leaderboard', async (req, res) => {
   try {
     const period = req.query.period || 'weekly';
     const limit = parseInt(req.query.limit) || 50;
+    const requestKey = `leaderboard:${period}:${limit}`;
 
+    const leaderboard = await deduplicateRequest(requestKey, async () => {
     let startDate;
     const endDate = new Date();
 
@@ -382,74 +398,53 @@ router.get('/leaderboard', async (req, res) => {
         startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     }
 
-    // Get users with their total points (for leaderboard ranking)
-    // First get all users sorted by total points
-    const leaderboard = await prisma.user.findMany({
-      select: {
-        id: true,
-        username: true,
-        displayName: true,
-        avatarUrl: true,
-        avatarData: true,
-        points: true,
-        streakCount: true,
-        role: true
-      },
-      orderBy: { points: 'desc' },
-      take: limit
-    });
+      // Single optimized query to get leaderboard with period points
+      const result = await prisma.$queryRaw`
+        WITH user_period_points AS (
+          SELECT 
+            ua.user_id,
+            COALESCE(SUM(ua.points_earned), 0) as period_points
+          FROM user_activities ua
+          WHERE ua.completed_at >= ${startDate} 
+            AND ua.completed_at <= ${endDate}
+          GROUP BY ua.user_id
+        )
+        SELECT 
+          u.id,
+          u.username,
+          u.display_name as "displayName",
+          u.avatar_url as "avatarUrl",
+          u.avatar_data as "avatarData",
+          u.points,
+          u.streak_count as "streakCount",
+          u.role,
+          COALESCE(upp.period_points, 0) as "periodPoints"
+        FROM users u
+        LEFT JOIN user_period_points upp ON u.id = upp.user_id
+        ORDER BY u.points DESC
+        LIMIT ${limit}
+      `;
 
-    // Debug: Log the first few users to verify sorting
-    console.log('Leaderboard data (first 5 users):', leaderboard.slice(0, 5).map(u => ({
-      username: u.username,
-      points: u.points
-    })));
-
-    // Now get period points for each user separately
-    const leaderboardWithPeriodPoints = await Promise.all(
-      leaderboard.map(async (user) => {
-        const periodActivities = await prisma.userActivity.findMany({
-          where: {
-            userId: user.id,
-            completedAt: {
-              gte: startDate,
-              lte: endDate
-            }
-          },
-          select: {
-            pointsEarned: true
-          }
-        });
-        
-        const periodPoints = periodActivities.reduce((sum, activity) => sum + activity.pointsEarned, 0);
-        
-        return {
-          ...user,
-          periodPoints
-        };
-      })
-    );
-
-    // Ensure we're using the original order from database (sorted by total points)
-    // No additional sorting needed - database already sorted by points DESC
-
-    res.json({
-      success: true,
-      data: {
-        leaderboard: leaderboardWithPeriodPoints.map((user, index) => ({
+      return result.map((user, index) => ({
           rank: index + 1,
           id: user.id,
           username: user.username,
           displayName: user.displayName,
           avatarUrl: user.avatarUrl,
           avatarData: user.avatarData,
-          totalPoints: user.points,
-          periodPoints: user.periodPoints,
-          streakCount: user.streakCount
-        })),
+        totalPoints: parseInt(user.points),
+        periodPoints: parseInt(user.periodPoints),
+        streakCount: parseInt(user.streakCount)
+      }));
+    });
+
+    res.json({
+      success: true,
+      data: {
+        leaderboard,
         period,
-        startDate,
-        endDate
+        startDate: leaderboard.length > 0 ? startDate : null,
+        endDate: leaderboard.length > 0 ? endDate : null
       }
     });
 

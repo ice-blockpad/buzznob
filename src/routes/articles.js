@@ -2,6 +2,7 @@ const express = require('express');
 const { prisma } = require('../config/database');
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
+const { deduplicateRequest } = require('../middleware/deduplication');
 
 const router = express.Router();
 
@@ -9,25 +10,27 @@ const router = express.Router();
 router.get('/trending', optionalAuth, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 10;
+    const requestKey = `trending:${limit}`;
 
-    const articles = await prisma.article.findMany({
-      where: {
-        isFeatured: true,
-        status: 'published' // Only show published articles
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      select: {
-        id: true,
-        title: true,
-        content: true,
-        category: true,
-        sourceUrl: true,
-        sourceName: true,
-        pointsValue: true,
-        readTimeEstimate: true,
-        isFeatured: true,
-        imageUrl: true,
+    const articles = await deduplicateRequest(requestKey, async () => {
+      return await prisma.article.findMany({
+        where: {
+          isFeatured: true,
+          status: 'published'
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          category: true,
+          sourceUrl: true,
+          sourceName: true,
+          pointsValue: true,
+          readTimeEstimate: true,
+          isFeatured: true,
+          imageUrl: true,
         imageData: true,
         imageType: true,
         createdAt: true,
@@ -40,6 +43,7 @@ router.get('/trending', optionalAuth, async (req, res) => {
           }
         }
       }
+    });
     });
 
     res.json({

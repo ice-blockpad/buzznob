@@ -2,6 +2,7 @@ const express = require('express');
 const { prisma } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
+const { deduplicateRequest } = require('../middleware/deduplication');
 
 const router = express.Router();
 
@@ -106,18 +107,18 @@ async function updateReferrerMiningRates(userId) {
         let activeReferrals = 0;
         if (referrer.referrals && referrer.referrals.length > 0) {
           const activeReferredUsers = await tx.user.findMany({
-            where: {
+        where: {
               referredBy: user.referredBy,
               miningSessions: {
-                some: {
+            some: {
                   isActive: true,
                   startedAt: {
                     gte: new Date(Date.now() - 6 * 60 * 60 * 1000) // 6 hours
-                  }
-                }
               }
             }
-          });
+          }
+        }
+      });
           activeReferrals = activeReferredUsers.length;
         }
 
@@ -152,156 +153,138 @@ async function updateReferrerMiningRates(userId) {
 router.get('/stats', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
+    const requestKey = `mining:stats:${userId}`;
     
-    // Get user's mining stats
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        referrals: true,
-        miningSessions: {
-          where: { isActive: true },
-          orderBy: { startedAt: 'desc' },
-          take: 1
-        },
-        miningClaims: {
-          orderBy: { createdAt: 'desc' }
+    const stats = await deduplicateRequest(requestKey, async () => {
+      // Single optimized query to get all mining data
+      const result = await prisma.$queryRaw`
+        WITH user_mining_data AS (
+          SELECT 
+            u.id as user_id,
+            u.points,
+            COUNT(DISTINCT ms_active.id) as active_sessions,
+            COUNT(DISTINCT ms_completed.id) as completed_sessions,
+            COUNT(DISTINCT mc.id) as total_claims,
+            COALESCE(SUM(mc.amount), 0) as total_earned,
+            COUNT(DISTINCT ref.id) as total_referrals,
+            COUNT(DISTINCT active_ref.id) as active_referrals
+          FROM users u
+          LEFT JOIN mining_sessions ms_active ON u.id = ms_active.user_id AND ms_active.is_active = true
+          LEFT JOIN mining_sessions ms_completed ON u.id = ms_completed.user_id AND ms_completed.is_completed = true AND ms_completed.is_claimed = true
+          LEFT JOIN mining_claims mc ON u.id = mc.user_id
+          LEFT JOIN users ref ON ref.referred_by = u.id
+          LEFT JOIN users active_ref ON active_ref.referred_by = u.id 
+            AND EXISTS (
+              SELECT 1 FROM mining_sessions ms_ref 
+              WHERE ms_ref.user_id = active_ref.id 
+                AND ms_ref.is_active = true 
+                AND ms_ref.started_at >= NOW() - INTERVAL '6 hours'
+            )
+          WHERE u.id = ${userId}
+          GROUP BY u.id, u.points
+        ),
+        current_session AS (
+          SELECT 
+            ms.id,
+            ms.started_at,
+            ms.total_mined,
+            ms.current_rate,
+            ms.last_update,
+            ms.is_active,
+            ms.is_completed,
+            ms.is_claimed
+          FROM mining_sessions ms
+          WHERE ms.user_id = ${userId}
+            AND (ms.is_active = true OR (ms.is_completed = true AND ms.is_claimed = false))
+          ORDER BY ms.started_at DESC
+          LIMIT 1
+        )
+        SELECT 
+          umd.*,
+          cs.id as session_id,
+          cs.started_at,
+          cs.total_mined,
+          cs.current_rate,
+          cs.last_update,
+          cs.is_active,
+          cs.is_completed,
+          cs.is_claimed
+        FROM user_mining_data umd
+        LEFT JOIN current_session cs ON true
+      `;
+
+      if (!result || result.length === 0) {
+        throw new Error('USER_NOT_FOUND');
+      }
+
+      const data = result[0];
+      const baseRate = 20;
+      const miningCycleDuration = 6 * 60 * 60 * 1000;
+    const now = new Date();
+      
+      // Calculate active referral bonus
+      const activeReferralBonus = parseInt(data.active_referrals) * 10;
+      const totalMiningRate = baseRate + (baseRate * activeReferralBonus / 100);
+    
+    let readyToClaim = 0;
+    let nextClaimTime = null;
+    let isMining = false;
+      let timeRemaining = 0;
+      let currentMiningRate = 0;
+      
+      if (data.session_id) {
+        const sessionStartTime = new Date(data.started_at);
+        const sessionEndTime = new Date(sessionStartTime.getTime() + miningCycleDuration);
+        
+        if (data.is_completed && !data.is_claimed) {
+          // Completed session ready to claim
+          readyToClaim = parseFloat(data.total_mined);
+          isMining = false;
+          currentMiningRate = parseInt(data.current_rate);
+        } else if (data.is_active && now < sessionEndTime) {
+          // Active session
+          isMining = true;
+          timeRemaining = sessionEndTime - now;
+          nextClaimTime = sessionEndTime;
+          currentMiningRate = parseInt(data.current_rate);
+          
+          // Calculate current mined amount
+          const elapsedTime = now - new Date(data.last_update);
+          const elapsedHours = elapsedTime / (1000 * 60 * 60);
+          const minedSinceLastUpdate = (currentMiningRate * elapsedHours) / 6;
+          readyToClaim = parseFloat(data.total_mined) + minedSinceLastUpdate;
         }
       }
+      
+      return {
+        isMining,
+        currentMiningRate,
+        totalMiningRate,
+        readyToClaim,
+        nextClaimTime,
+        timeRemaining,
+        totalEarned: parseFloat(data.total_earned),
+        completedSessions: parseInt(data.completed_sessions),
+        totalReferrals: parseInt(data.total_referrals),
+        activeReferrals: parseInt(data.active_referrals),
+        activeReferralBonus
+      };
     });
 
-    if (!user) {
+    res.json({
+      success: true,
+      data: stats
+    });
+
+  } catch (error) {
+    if (error.message === 'USER_NOT_FOUND') {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
-
-    // Calculate mining stats
-    const baseRate = 20; // 20 tokens per 6-hour session
-    const miningCycleDuration = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
     
-    // Calculate active referral bonus (10% per active referred user who is also mining)
-    let activeReferralBonus = 0;
-    if (user.referrals && user.referrals.length > 0) {
-      // Check which referred users are currently mining (have active mining sessions)
-      const activeReferredUsers = await prisma.user.findMany({
-        where: {
-          referredBy: userId,
-          miningSessions: {
-            some: {
-              isActive: true,
-              startedAt: {
-                gte: new Date(Date.now() - miningCycleDuration)
-              }
-            }
-          }
-        }
-      });
-      
-      // Only count active referred users for bonus
-      activeReferralBonus = activeReferredUsers.length * 10; // 10% per active referral
-    }
-    
-    const totalMiningRate = baseRate + (baseRate * activeReferralBonus / 100);
-    
-    // Check current mining session
-    const currentSession = user.miningSessions[0];
-    const now = new Date();
-    
-    let readyToClaim = 0;
-    let nextClaimTime = null;
-    let isMining = false;
-    let timeRemaining = 0;
-    let currentMiningRate = 0;
-    
-    // Check if there's a completed session ready to claim
-    const completedUnclaimedSession = await prisma.miningSession.findFirst({
-      where: {
-        userId: userId,
-        isCompleted: true,
-        isClaimed: false
-      },
-      orderBy: { startedAt: 'desc' }
-    });
-
-    if (completedUnclaimedSession) {
-      readyToClaim = completedUnclaimedSession.totalMined;
-      isMining = false;
-      nextClaimTime = null;
-      timeRemaining = 0;
-      currentMiningRate = completedUnclaimedSession.currentRate;
-    } else if (currentSession) {
-      // Update mining progress first
-      await updateMiningProgress(currentSession.id);
-      
-      // Fetch updated session data
-      const updatedSession = await prisma.miningSession.findUnique({
-        where: { id: currentSession.id }
-      });
-      
-      const sessionEndTime = new Date(updatedSession.startedAt.getTime() + miningCycleDuration);
-      
-      if (now < sessionEndTime) {
-        // Session is still active
-        isMining = true;
-        timeRemaining = sessionEndTime - now;
-        nextClaimTime = sessionEndTime;
-        
-        // Calculate current mined amount (read-only for display)
-        const elapsedTime = now - updatedSession.lastUpdate;
-        const elapsedHours = elapsedTime / (1000 * 60 * 60);
-        const minedSinceLastUpdate = (updatedSession.currentRate * elapsedHours) / 6;
-        const currentTotalMined = updatedSession.totalMined + minedSinceLastUpdate;
-        
-        currentMiningRate = updatedSession.currentRate;
-        readyToClaim = 0; // Can't claim until session ends
-      } else {
-        // Session is complete but not yet claimed (handled above)
-        isMining = false;
-        nextClaimTime = null;
-        timeRemaining = 0;
-        currentMiningRate = updatedSession.currentRate;
-      }
-    } else {
-      // No active session
-      isMining = false;
-      nextClaimTime = null;
-      timeRemaining = 0;
-      currentMiningRate = 0;
-    }
-    
-    // Calculate total earned
-    const totalEarned = user.miningClaims?.reduce((sum, claim) => sum + claim.amount, 0) || 0;
-    
-    // Count completed mining sessions
-    const completedSessions = await prisma.miningSession.count({
-      where: {
-        userId: userId,
-        isClaimed: true
-      }
-    });
-
-    res.json({
-      success: true,
-      data: {
-        miningRate: currentMiningRate || totalMiningRate, // Show current rate if mining, otherwise potential rate
-        currentMiningRate: currentMiningRate, // Current rate for active session
-        baseRate: baseRate,
-        activeReferralBonus: activeReferralBonus,
-        activeReferralCount: user.referrals ? user.referrals.length : 0,
-        totalMiningRate: currentMiningRate || totalMiningRate,
-        readyToClaim,
-        totalEarned,
-        nextClaimTime: nextClaimTime ? nextClaimTime.toISOString() : null,
-        timeRemaining,
-        isMining,
-        sessionStartTime: currentSession ? currentSession.startedAt.toISOString() : null,
-        completedSessions,
-        todayEarned: 0 // TODO: Calculate today's earnings
-      }
-    });
-  } catch (error) {
-    console.error('Error fetching mining stats:', error);
+    console.error('Get mining stats error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch mining stats'
@@ -324,8 +307,8 @@ router.post('/start', authenticateToken, async (req, res) => {
     });
     
     if (activeSession) {
-      return res.status(400).json({
-        success: false,
+        return res.status(400).json({
+          success: false,
         message: 'Mining is already active. Please wait for the current session to complete.'
       });
     }
@@ -428,10 +411,10 @@ router.post('/claim', authenticateToken, async (req, res) => {
         }
       });
 
-      // Create mining claim record
+    // Create mining claim record
       await tx.miningClaim.create({
-        data: {
-          userId,
+      data: {
+        userId,
           amount: finalMinedAmount,
           miningRate: completedSession.currentRate,
           referralBonus: Math.max(0, finalMinedAmount - completedSession.baseReward)

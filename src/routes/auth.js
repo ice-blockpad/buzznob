@@ -99,12 +99,12 @@ router.get('/google/callback', async (req, res) => {
         // For new users, don't create account yet - store temporary session data
         // This will be used to create the account after profile completion and referral choice
         const tempSessionData = {
-          googleId,
-          email,
-          displayName: name,
-          firstName: given_name || name?.split(' ')[0] || '',
-          lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
-          avatarUrl: picture,
+            googleId,
+            email,
+            displayName: name,
+            firstName: given_name || name?.split(' ')[0] || '',
+            lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
+            avatarUrl: picture,
           isNewUser: true
         };
 
@@ -292,12 +292,12 @@ router.post('/google-mobile', async (req, res) => {
         // For new users, don't create account yet - store temporary session data
         // This will be used to create the account after profile completion and referral choice
         const tempSessionData = {
-          googleId,
-          email,
-          displayName: name,
-          firstName: given_name || name?.split(' ')[0] || '',
-          lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
-          avatarUrl: picture,
+            googleId,
+            email,
+            displayName: name,
+            firstName: given_name || name?.split(' ')[0] || '',
+            lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
+            avatarUrl: picture,
           isNewUser: true
         };
 
@@ -306,7 +306,7 @@ router.post('/google-mobile', async (req, res) => {
         return res.json({
           success: true,
           message: 'New user - profile completion required',
-          data: {
+            data: {
             user: tempSessionData,
             accessToken: null, // No token until account is finalized
             refreshToken: null,
