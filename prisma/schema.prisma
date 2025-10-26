@@ -184,7 +184,8 @@ model MiningSession {
   totalMined    Float    @default(0) @map("total_mined") // Total tokens mined so far
   lastUpdate    DateTime @default(now()) @map("last_update") // Last time rate was updated
   isActive      Boolean  @default(true) @map("is_active")
-  isCompleted   Boolean  @default(false) @map("is_completed") // Whether the session has been completed and tokens claimed
+  isCompleted   Boolean  @default(false) @map("is_completed") // Whether the session has been completed (time expired)
+  isClaimed     Boolean  @default(false) @map("is_claimed") // Whether the session has been claimed
   completedAt   DateTime? @map("completed_at") // When the session was completed
   createdAt     DateTime @default(now()) @map("created_at")
 

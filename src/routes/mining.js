@@ -214,7 +214,23 @@ router.get('/stats', authenticateToken, async (req, res) => {
     let timeRemaining = 0;
     let currentMiningRate = 0;
     
-    if (currentSession) {
+    // Check if there's a completed session ready to claim
+    const completedUnclaimedSession = await prisma.miningSession.findFirst({
+      where: {
+        userId: userId,
+        isCompleted: true,
+        isClaimed: false
+      },
+      orderBy: { startedAt: 'desc' }
+    });
+
+    if (completedUnclaimedSession) {
+      readyToClaim = Math.floor(completedUnclaimedSession.totalMined);
+      isMining = false;
+      nextClaimTime = null;
+      timeRemaining = 0;
+      currentMiningRate = completedUnclaimedSession.currentRate;
+    } else if (currentSession) {
       // Update mining progress first
       await updateMiningProgress(currentSession.id);
       
@@ -240,9 +256,8 @@ router.get('/stats', authenticateToken, async (req, res) => {
         currentMiningRate = updatedSession.currentRate;
         readyToClaim = 0; // Can't claim until session ends
       } else {
-        // Session is complete, ready to claim
+        // Session is complete but not yet claimed (handled above)
         isMining = false;
-        readyToClaim = updatedSession.totalMined; // Claim the total mined amount
         nextClaimTime = null;
         timeRemaining = 0;
         currentMiningRate = updatedSession.currentRate;
@@ -250,7 +265,6 @@ router.get('/stats', authenticateToken, async (req, res) => {
     } else {
       // No active session
       isMining = false;
-      readyToClaim = 0;
       nextClaimTime = null;
       timeRemaining = 0;
       currentMiningRate = 0;
@@ -263,7 +277,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
     const completedSessions = await prisma.miningSession.count({
       where: {
         userId: userId,
-        isCompleted: true
+        isClaimed: true
       }
     });
 
@@ -388,8 +402,8 @@ router.post('/claim', authenticateToken, async (req, res) => {
     const completedSession = await prisma.miningSession.findFirst({
       where: { 
         userId,
-        isActive: true,
-        isCompleted: false
+        isCompleted: true,
+        isClaimed: false
       },
       orderBy: { startedAt: 'desc' }
     });
@@ -401,33 +415,16 @@ router.post('/claim', authenticateToken, async (req, res) => {
       });
     }
 
-    const now = new Date();
-    const sessionEndTime = new Date(completedSession.startedAt.getTime() + 6 * 60 * 60 * 1000);
-    
-    // Check if session is actually completed (6 hours have passed)
-    if (now < sessionEndTime) {
-      return res.status(400).json({
-        success: false,
-        message: 'Mining session is still in progress. Please wait for it to complete.'
-      });
-    }
+    // Calculate final mined amount
+    const finalMinedAmount = Math.floor(completedSession.totalMined);
 
-    // Calculate final mined amount (add any remaining time)
-    const elapsedTime = now - completedSession.lastUpdate;
-    const elapsedHours = elapsedTime / (1000 * 60 * 60);
-    const finalMinedAmount = completedSession.totalMined + (completedSession.currentRate * elapsedHours) / 6;
-
-    // Mark session as completed and claim rewards
+    // Mark session as claimed and claim rewards
     await prisma.$transaction(async (tx) => {
-      // Update session as completed with final mined amount
+      // Mark session as claimed
       await tx.miningSession.update({
         where: { id: completedSession.id },
         data: {
-          isActive: false,
-          isCompleted: true,
-          completedAt: now,
-          totalMined: finalMinedAmount,
-          lastUpdate: now
+          isClaimed: true
         }
       });
 
@@ -435,10 +432,9 @@ router.post('/claim', authenticateToken, async (req, res) => {
       await tx.miningClaim.create({
         data: {
           userId,
-          amount: Math.floor(finalMinedAmount),
-          miningRate: Math.floor(finalMinedAmount),
-          referralBonus: Math.floor(finalMinedAmount - completedSession.baseReward),
-          claimedAt: now
+          amount: finalMinedAmount,
+          miningRate: completedSession.currentRate,
+          referralBonus: Math.max(0, finalMinedAmount - completedSession.baseReward)
         }
       });
 
@@ -447,7 +443,7 @@ router.post('/claim', authenticateToken, async (req, res) => {
         where: { id: userId },
         data: {
           points: {
-            increment: Math.floor(finalMinedAmount)
+            increment: finalMinedAmount
           }
         }
       });
@@ -459,8 +455,8 @@ router.post('/claim', authenticateToken, async (req, res) => {
     res.json({
       success: true,
       data: {
-        amount: Math.floor(finalMinedAmount),
-        message: `Successfully claimed ${Math.floor(finalMinedAmount)} $BUZZ tokens!`
+        amount: finalMinedAmount,
+        message: `Successfully claimed ${finalMinedAmount} $BUZZ tokens!`
       }
     });
   } catch (error) {
