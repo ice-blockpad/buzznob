@@ -163,15 +163,22 @@ router.get('/stats', authenticateToken, async (req, res) => {
             u.id as user_id,
             u.points,
             COUNT(DISTINCT ms_active.id) as active_sessions,
-            COUNT(DISTINCT ms_completed.id) as completed_sessions,
-            COUNT(DISTINCT mc.id) as total_claims,
-            COALESCE(SUM(mc.amount), 0) as total_earned
+            COUNT(DISTINCT ms_completed.id) as completed_sessions
           FROM users u
           LEFT JOIN mining_sessions ms_active ON u.id = ms_active.user_id AND ms_active.is_active = true
           LEFT JOIN mining_sessions ms_completed ON u.id = ms_completed.user_id AND ms_completed.is_completed = true AND ms_completed.is_claimed = true
-          LEFT JOIN mining_claims mc ON u.id = mc.user_id
           WHERE u.id = ${userId}
           GROUP BY u.id, u.points
+        ),
+        mining_claims_data AS (
+          SELECT 
+            u.id as user_id,
+            COUNT(DISTINCT mc.id) as total_claims,
+            COALESCE(SUM(mc.amount), 0) as total_earned
+          FROM users u
+          LEFT JOIN mining_claims mc ON u.id = mc.user_id
+          WHERE u.id = ${userId}
+          GROUP BY u.id
         ),
         referral_data AS (
           SELECT 
@@ -211,8 +218,8 @@ router.get('/stats', authenticateToken, async (req, res) => {
           umd.points,
           umd.active_sessions,
           umd.completed_sessions,
-          umd.total_claims,
-          umd.total_earned,
+          mcd.total_claims,
+          mcd.total_earned,
           rd.total_referrals,
           rd.active_referrals,
           cs.id as session_id,
@@ -224,6 +231,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
           cs.is_completed,
           cs.is_claimed
         FROM user_mining_data umd
+        LEFT JOIN mining_claims_data mcd ON umd.user_id = mcd.user_id
         LEFT JOIN referral_data rd ON umd.user_id = rd.user_id
         LEFT JOIN current_session cs ON true
       `;
