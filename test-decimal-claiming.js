@@ -10,11 +10,11 @@ async function testDecimalClaiming() {
     const testAmount = 13.9826;
     console.log(`Original mined amount: ${testAmount}`);
     
-    const finalMinedAmount = parseFloat(testAmount);
-    const pointsToAdd = Math.floor(finalMinedAmount);
+    const finalMinedAmount = parseFloat(testAmount.toFixed(4));
+    const pointsToAdd = finalMinedAmount; // Both get same rounded amount
     
     console.log(`Final mined amount (for mining balance): ${finalMinedAmount}`);
-    console.log(`Points to add (floored): ${pointsToAdd}`);
+    console.log(`Points to add (rounded): ${pointsToAdd}`);
     console.log(`Difference: ${finalMinedAmount - pointsToAdd}`);
     
     // Test with different amounts
@@ -22,8 +22,8 @@ async function testDecimalClaiming() {
     
     console.log('\n📊 Test cases:');
     testCases.forEach((amount, index) => {
-      const final = parseFloat(amount);
-      const points = Math.floor(final);
+      const final = parseFloat(amount.toFixed(4));
+      const points = final; // Both get same rounded amount
       const difference = final - points;
       
       console.log(`${index + 1}. ${amount} → Mining Balance: ${final}, Points: ${points}, Difference: ${difference}`);

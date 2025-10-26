@@ -360,9 +360,9 @@ router.post('/claim', authenticateToken, async (req, res) => {
       });
     }
 
-    // Calculate final mined amount - keep decimals for mining balance
-    const finalMinedAmount = parseFloat(completedSession.totalMined);
-    const pointsToAdd = Math.floor(finalMinedAmount); // Only points get floored
+    // Calculate final mined amount - round to 4 decimal places for both
+    const finalMinedAmount = parseFloat(completedSession.totalMined.toFixed(4));
+    const pointsToAdd = finalMinedAmount; // Both get the same rounded amount
 
     // Mark session as claimed and claim rewards
     await prisma.$transaction(async (tx) => {
