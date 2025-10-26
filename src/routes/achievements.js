@@ -64,7 +64,7 @@ router.get('/badges', authenticateToken, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'BADGES_FETCH_ERROR',
-      message: 'Failed to fetch badges'
+      message: 'Failed to fetch achievement badges'
     });
   }
 });
