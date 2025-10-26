@@ -198,7 +198,7 @@ model MiningSession {
 model MiningClaim {
   id            String   @id @default(cuid()) @db.VarChar
   userId        String   @map("user_id") @db.VarChar
-  amount        Int
+  amount        Float
   miningRate    Int      @map("mining_rate")
   referralBonus Int      @map("referral_bonus")
   claimedAt     DateTime @default(now()) @map("claimed_at")
