@@ -263,6 +263,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
         readyToClaim,
         nextClaimTime,
         timeRemaining,
+        sessionStartTime: data.started_at,
         totalEarned: parseFloat(data.total_earned),
         completedSessions: parseInt(data.completed_sessions),
         totalReferrals: parseInt(data.total_referrals),
