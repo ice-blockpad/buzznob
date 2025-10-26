@@ -23,6 +23,7 @@ model User {
   avatarData    String?  @map("avatar_data") @db.Text
   avatarType    String?  @map("avatar_type")
   points        Int      @default(0)
+  miningBalance Float    @default(0) @map("mining_balance") // Total claimed mining tokens
   streakCount   Int      @default(0) @map("streak_count")
   lastLogin     DateTime? @map("last_login")
   createdAt     DateTime @default(now()) @map("created_at")

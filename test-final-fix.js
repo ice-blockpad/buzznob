@@ -2,9 +2,9 @@ const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 
-async function debugMiningStats() {
+async function testFinalFix() {
   try {
-    console.log('Debugging mining stats for tonwifhat@gmail.com...');
+    console.log('Testing final fix...');
     
     // Find the user
     const user = await prisma.user.findFirst({
@@ -16,24 +16,36 @@ async function debugMiningStats() {
       return;
     }
     
-    console.log('User:', user.username, user.email);
-    
-    // Replicate the exact SQL query from the backend
+    // Test the final fixed query
     const result = await prisma.$queryRaw`
       WITH user_mining_data AS (
         SELECT 
           u.id as user_id,
           u.points,
           COUNT(DISTINCT ms_active.id) as active_sessions,
-          COUNT(DISTINCT ms_completed.id) as completed_sessions,
-          COUNT(DISTINCT mc.id) as total_claims,
-          COALESCE(SUM(mc.amount), 0) as total_earned,
-          COUNT(DISTINCT ref.id) as total_referrals,
-          COUNT(DISTINCT active_ref.id) as active_referrals
+          COUNT(DISTINCT ms_completed.id) as completed_sessions
         FROM users u
         LEFT JOIN mining_sessions ms_active ON u.id = ms_active.user_id AND ms_active.is_active = true
         LEFT JOIN mining_sessions ms_completed ON u.id = ms_completed.user_id AND ms_completed.is_completed = true AND ms_completed.is_claimed = true
+        WHERE u.id = ${user.id}
+        GROUP BY u.id, u.points
+      ),
+      mining_claims_data AS (
+        SELECT 
+          u.id as user_id,
+          COUNT(DISTINCT mc.id) as total_claims,
+          COALESCE(SUM(mc.amount), 0) as total_earned
+        FROM users u
         LEFT JOIN mining_claims mc ON u.id = mc.user_id
+        WHERE u.id = ${user.id}
+        GROUP BY u.id
+      ),
+      referral_data AS (
+        SELECT 
+          u.id as user_id,
+          COUNT(DISTINCT ref.id) as total_referrals,
+          COUNT(DISTINCT active_ref.id) as active_referrals
+        FROM users u
         LEFT JOIN users ref ON ref.referred_by = u.id
         LEFT JOIN users active_ref ON active_ref.referred_by = u.id 
           AND EXISTS (
@@ -43,7 +55,7 @@ async function debugMiningStats() {
               AND ms_ref.started_at >= NOW() - INTERVAL '6 hours'
           )
         WHERE u.id = ${user.id}
-        GROUP BY u.id, u.points
+        GROUP BY u.id
       ),
       current_session AS (
         SELECT 
@@ -62,7 +74,14 @@ async function debugMiningStats() {
         LIMIT 1
       )
       SELECT 
-        umd.*,
+        umd.user_id,
+        umd.points,
+        umd.active_sessions,
+        umd.completed_sessions,
+        mcd.total_claims,
+        mcd.total_earned,
+        rd.total_referrals,
+        rd.active_referrals,
         cs.id as session_id,
         cs.started_at,
         cs.total_mined,
@@ -72,16 +91,17 @@ async function debugMiningStats() {
         cs.is_completed,
         cs.is_claimed
       FROM user_mining_data umd
+      LEFT JOIN mining_claims_data mcd ON umd.user_id = mcd.user_id
+      LEFT JOIN referral_data rd ON umd.user_id = rd.user_id
       LEFT JOIN current_session cs ON true
     `;
     
-    console.log('SQL Query Result:', result);
+    console.log('Final fix result:', result);
     
     if (result && result.length > 0) {
       const data = result[0];
-      console.log('Total earned from SQL:', data.total_earned);
+      console.log('Total earned (should be 42):', data.total_earned);
       console.log('Total claims:', data.total_claims);
-      console.log('Current session total_mined:', data.total_mined);
     }
     
   } catch (error) {
@@ -91,4 +111,4 @@ async function debugMiningStats() {
   }
 }
 
-debugMiningStats();
+testFinalFix();
