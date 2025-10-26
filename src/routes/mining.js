@@ -225,7 +225,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
     });
 
     if (completedUnclaimedSession) {
-      readyToClaim = Math.floor(completedUnclaimedSession.totalMined);
+      readyToClaim = completedUnclaimedSession.totalMined;
       isMining = false;
       nextClaimTime = null;
       timeRemaining = 0;
