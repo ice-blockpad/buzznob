@@ -306,7 +306,6 @@ router.post('/start', authenticateToken, async (req, res) => {
     
     const now = new Date();
     const duration = 21600; // 6 hours in seconds (from schema default)
-    const endsAt = new Date(now.getTime() + duration * 1000); // Calculate end time using duration
     
     const miningSession = await prisma.miningSession.create({
       data: {
@@ -316,7 +315,6 @@ router.post('/start', authenticateToken, async (req, res) => {
         totalMined: 0,
         lastUpdate: now,
         startedAt: now,
-        endsAt: endsAt,
         duration: duration,
         isActive: true
       }
