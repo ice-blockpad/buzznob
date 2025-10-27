@@ -377,7 +377,7 @@ router.get('/leaderboard', async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const requestKey = `leaderboard:${period}:${limit}`;
 
-    const leaderboard = await deduplicateRequest(requestKey, async () => {
+    // Calculate dates outside the callback so they're accessible to the SQL query
     let startDate;
     const endDate = new Date();
 
@@ -397,6 +397,8 @@ router.get('/leaderboard', async (req, res) => {
       default:
         startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     }
+
+    const leaderboard = await deduplicateRequest(requestKey, async () => {
 
       // Single optimized query to get leaderboard with period points
       const result = await prisma.$queryRaw`
@@ -442,9 +444,7 @@ router.get('/leaderboard', async (req, res) => {
       success: true,
       data: {
         leaderboard,
-        period,
-        startDate: leaderboard.length > 0 ? startDate : null,
-        endDate: leaderboard.length > 0 ? endDate : null
+        period
       }
     });
 
