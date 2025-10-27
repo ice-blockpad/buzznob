@@ -472,15 +472,24 @@ router.get('/info', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const walletData = await prisma.walletData.findFirst({
-      where: { userId, isActive: true },
-      select: {
-        id: true,
-        publicKey: true,
-        isActive: true,
-        createdAt: true
-      }
-    });
+    const [walletData, user] = await Promise.all([
+      prisma.walletData.findFirst({
+        where: { userId, isActive: true },
+        select: {
+          id: true,
+          publicKey: true,
+          isActive: true,
+          createdAt: true
+        }
+      }),
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          points: true,
+          miningBalance: true
+        }
+      })
+    ]);
 
     if (!walletData) {
       return res.status(404).json({
@@ -493,7 +502,9 @@ router.get('/info', authenticateToken, async (req, res) => {
     res.json({
       success: true,
       data: {
-        wallet: walletData
+        wallet: walletData,
+        buzzBalance: user?.points || 0,
+        miningBalance: user?.miningBalance || 0
       }
     });
 
