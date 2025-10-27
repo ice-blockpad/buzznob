@@ -212,20 +212,28 @@ router.get('/stats', authenticateToken, async (req, res) => {
           currentMiningRate = activeSession.currentRate;
           sessionStartTime = activeSession.startedAt;
         } else {
-          // Session has expired but is still marked as active - clean it up
-          console.log(`Cleaning up expired session ${activeSession.id} for user ${userId}`);
-          await updateMiningProgress(activeSession.id);
+          // Session has expired - mark it as completed immediately
+          const sessionEndTime = new Date(sessionStartTime.getTime() + miningCycleDuration);
+          const finalMinedAmount = activeSession.totalMined + (activeSession.currentRate * (sessionEndTime - activeSession.lastUpdate) / (1000 * 60 * 60)) / 6;
           
-          // Re-fetch the session after cleanup to get updated status
-          const updatedSession = await prisma.miningSession.findUnique({
-            where: { id: activeSession.id }
+          // Mark session as completed
+          await prisma.miningSession.update({
+            where: { id: activeSession.id },
+            data: {
+              isActive: false,
+              isCompleted: true,
+              completedAt: sessionEndTime,
+              totalMined: finalMinedAmount,
+              lastUpdate: sessionEndTime
+            }
           });
           
-          if (updatedSession && updatedSession.isCompleted && !updatedSession.isClaimed) {
-            // Session is now completed and ready to claim
-            readyToClaim = updatedSession.totalMined;
-            currentMiningRate = updatedSession.currentRate;
-          }
+          // Session is now completed and ready to claim
+          readyToClaim = finalMinedAmount;
+          currentMiningRate = activeSession.currentRate;
+          
+          // Update referrer rates since this user is no longer mining
+          setImmediate(() => updateReferrerMiningRates(userId));
         }
       } else if (completedUnclaimedSession) {
         readyToClaim = completedUnclaimedSession.totalMined;
