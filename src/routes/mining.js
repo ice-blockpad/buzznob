@@ -157,7 +157,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
     
     const stats = await deduplicateRequest(requestKey, async () => {
       // Simple queries - just fetch what we need
-      const [user, activeSession, completedUnclaimedSession, referrals] = await Promise.all([
+      const [user, activeSession, completedUnclaimedSession, referrals, completedSessionsCount] = await Promise.all([
         // Get user points and mining balance
         prisma.user.findUnique({
           where: { id: userId },
@@ -189,6 +189,14 @@ router.get('/stats', authenticateToken, async (req, res) => {
         // Get referral count
         prisma.user.count({
           where: { referredBy: userId }
+        }),
+        
+        // Get completed sessions count
+        prisma.miningSession.count({
+          where: {
+            userId,
+            isCompleted: true
+          }
         })
       ]);
 
@@ -225,7 +233,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
         timeRemaining,
         sessionStartTime,
         totalEarned,
-        completedSessions: 0, // We'll calculate this if needed, but it's not critical for the UI
+        completedSessions: completedSessionsCount,
         totalReferrals: referrals,
         activeReferrals: 0, // Simplified - we can calculate this if needed
         activeReferralBonus: 0
