@@ -409,9 +409,10 @@ router.get('/nfts', async (req, res) => {
 });
 
 // Export private key (with password verification)
-router.post('/export-key', async (req, res) => {
+router.post('/export-key', authenticateToken, async (req, res) => {
   try {
-    const { password, encryptedPrivateKey } = req.body;
+    const userId = req.user.id;
+    const { password } = req.body;
 
     if (!password || password.length !== 6) {
       return res.status(400).json({
@@ -420,36 +421,48 @@ router.post('/export-key', async (req, res) => {
       });
     }
 
-    if (!encryptedPrivateKey) {
-      return res.status(400).json({
+    // Get user's wallet data
+    const walletData = await prisma.walletData.findFirst({
+      where: { userId, isActive: true }
+    });
+
+    if (!walletData) {
+      return res.status(404).json({
         success: false,
-        message: 'No encrypted private key provided'
+        error: 'WALLET_NOT_FOUND',
+        message: 'No active wallet found for user'
       });
     }
 
-    try {
-      // Decrypt private key with user's password
-      const decryptedPrivateKey = decryptPrivateKey(encryptedPrivateKey, password);
-      const privateKeyArray = JSON.parse(decryptedPrivateKey);
-      
-      res.json({
-        success: true,
-        data: {
-          privateKey: privateKeyArray,
-          message: 'Private key exported successfully. Keep it secure!'
-        }
-      });
-    } catch (decryptError) {
-      return res.status(400).json({
+    // Verify the password
+    const isValid = verifyPassword(password, walletData.passwordHash);
+
+    if (!isValid) {
+      return res.status(401).json({
         success: false,
-        message: 'Invalid password or corrupted private key'
+        error: 'INVALID_PASSWORD',
+        message: 'PIN does not match'
       });
     }
+
+    // Decrypt private key
+    const encryptedPrivateKey = JSON.parse(walletData.encryptedPrivateKey);
+    const decryptedPrivateKey = decryptPrivateKey(encryptedPrivateKey, password);
+    const privateKeyArray = JSON.parse(decryptedPrivateKey);
+    
+    res.json({
+      success: true,
+      data: {
+        privateKey: privateKeyArray,
+        message: 'Private key exported successfully. Keep it secure!'
+      }
+    });
   } catch (error) {
     console.error('Error exporting private key:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to export private key'
+      error: 'EXPORT_ERROR',
+      message: error.message || 'Failed to export private key'
     });
   }
 });

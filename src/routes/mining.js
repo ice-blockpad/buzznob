@@ -156,6 +156,21 @@ router.get('/stats', authenticateToken, async (req, res) => {
     const requestKey = `mining:stats:${userId}`;
     
     const stats = await deduplicateRequest(requestKey, async () => {
+      // First, clean up any expired sessions that are still marked as active
+      await prisma.miningSession.updateMany({
+        where: {
+          isActive: true,
+          endsAt: {
+            lte: new Date() // Sessions that have reached their end time
+          }
+        },
+        data: {
+          isActive: false,
+          isCompleted: true,
+          completedAt: new Date()
+        }
+      });
+
       // Simple queries - just fetch what we need
       const [user, activeSession, completedUnclaimedSession, referrals, completedSessionsCount] = await Promise.all([
         // Get user points and mining balance
@@ -266,7 +281,23 @@ router.post('/start', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     
-    // Check if mining is already active
+    // First, clean up any expired sessions that are still marked as active
+    await prisma.miningSession.updateMany({
+      where: {
+        userId,
+        isActive: true,
+        endsAt: {
+          lte: new Date() // Sessions that have reached their end time
+        }
+      },
+      data: {
+        isActive: false,
+        isCompleted: true,
+        completedAt: new Date()
+      }
+    });
+    
+    // Check if mining is already active (after cleanup)
     const activeSession = await prisma.miningSession.findFirst({
       where: { 
         userId,
