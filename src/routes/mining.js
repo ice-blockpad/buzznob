@@ -203,7 +203,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
       const now = new Date();
 
       if (activeSession) {
-        const sessionStartTime = new Date(activeSession.startedAt);
+        sessionStartTime = new Date(activeSession.startedAt);
         const sessionEndTime = new Date(sessionStartTime.getTime() + miningCycleDuration);
         
         if (now < sessionEndTime) {
