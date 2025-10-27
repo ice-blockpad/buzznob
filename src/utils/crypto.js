@@ -1,11 +1,14 @@
 const crypto = require('crypto');
 
+// Use consistent salt for all operations
+const SALT = 'buzznob-wallet-salt';
+
 /**
  * Encrypt private key with user's password
  */
 function encryptPrivateKey(privateKey, password) {
   const algorithm = 'aes-256-gcm';
-  const key = crypto.scryptSync(password, 'salt', 32);
+  const key = crypto.scryptSync(password, SALT, 32);
   const iv = crypto.randomBytes(16);
   
   const cipher = crypto.createCipherGCM(algorithm, key, iv);
@@ -29,7 +32,7 @@ function encryptPrivateKey(privateKey, password) {
  */
 function decryptPrivateKey(encryptedData, password) {
   const algorithm = 'aes-256-gcm';
-  const key = crypto.scryptSync(password, 'salt', 32);
+  const key = crypto.scryptSync(password, SALT, 32);
   const iv = Buffer.from(encryptedData.iv, 'hex');
   const authTag = Buffer.from(encryptedData.authTag, 'hex');
   
@@ -47,14 +50,14 @@ function decryptPrivateKey(encryptedData, password) {
  * Hash password for storage
  */
 function hashPassword(password) {
-  return crypto.scryptSync(password, 'buzznob-salt', 64).toString('hex');
+  return crypto.scryptSync(password, SALT, 64).toString('hex');
 }
 
 /**
  * Verify password
  */
 function verifyPassword(password, hash) {
-  const testHash = crypto.scryptSync(password, 'buzznob-salt', 64).toString('hex');
+  const testHash = crypto.scryptSync(password, SALT, 64).toString('hex');
   return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(testHash));
 }
 
