@@ -38,12 +38,12 @@ router.post('/create', authenticateToken, async (req, res) => {
       });
     }
 
-    // Generate new keypair
+    // Generate new Solana keypair
     const keypair = Keypair.generate();
     const publicKey = keypair.publicKey.toString();
     const privateKey = Array.from(keypair.secretKey);
 
-    // Encrypt private key with user's password
+    // Encrypt private key with user's PIN
     const encryptedPrivateKey = encryptPrivateKey(JSON.stringify(privateKey), password);
     const passwordHash = hashPassword(password);
 
@@ -66,7 +66,7 @@ router.post('/create', authenticateToken, async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Wallet created successfully',
+      message: 'Solana wallet created successfully',
       data: {
         publicKey,
         walletId: walletData.id,
@@ -84,111 +84,39 @@ router.post('/create', authenticateToken, async (req, res) => {
   }
 });
 
-// Import existing wallet
-router.post('/import', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { privateKey, password } = req.body;
-
-    if (!privateKey || !password || password.length !== 6) {
-      return res.status(400).json({
-        success: false,
-        error: 'INVALID_INPUT',
-        message: 'Invalid private key or password'
-      });
-    }
-
-    // Check if user already has a wallet
-    const existingWallet = await prisma.walletData.findFirst({
-      where: { userId, isActive: true }
-    });
-
-    if (existingWallet) {
-      return res.status(400).json({
-        success: false,
-        error: 'WALLET_ALREADY_EXISTS',
-        message: 'User already has an active wallet'
-      });
-    }
-
-    try {
-      // Convert private key array to Keypair
-      const keypair = Keypair.fromSecretKey(new Uint8Array(privateKey));
-      const publicKey = keypair.publicKey.toString();
-
-      // Encrypt private key with user's password
-      const encryptedPrivateKey = encryptPrivateKey(JSON.stringify(privateKey), password);
-      const passwordHash = hashPassword(password);
-
-      // Store encrypted wallet data in database
-      const walletData = await prisma.walletData.create({
-        data: {
-          userId,
-          publicKey,
-          encryptedPrivateKey: JSON.stringify(encryptedPrivateKey),
-          passwordHash,
-          isActive: true
-        }
-      });
-
-      // Update user's wallet address
-      await prisma.user.update({
-        where: { id: userId },
-        data: { walletAddress: publicKey }
-      });
-
-      res.json({
-        success: true,
-        message: 'Wallet imported successfully',
-        data: {
-          publicKey,
-          walletId: walletData.id,
-          createdAt: walletData.createdAt,
-          encrypted: true
-        }
-      });
-    } catch (keyError) {
-      return res.status(400).json({
-        success: false,
-        error: 'INVALID_PRIVATE_KEY',
-        message: 'Invalid private key format'
-      });
-    }
-  } catch (error) {
-    console.error('Error importing wallet:', error);
-    res.status(500).json({
-      success: false,
-      error: 'WALLET_IMPORT_ERROR',
-      message: 'Failed to import wallet'
-    });
-  }
-});
-
 // Get wallet balance
 router.get('/balance', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
+    const { publicKey } = req.query;
 
-    const walletData = await prisma.walletData.findFirst({
-      where: { userId, isActive: true }
-    });
+    let walletPublicKey = publicKey;
 
-    if (!walletData) {
-      return res.status(404).json({
-        success: false,
-        error: 'WALLET_NOT_FOUND',
-        message: 'No active wallet found for user'
+    // If no publicKey provided, get from user's wallet
+    if (!walletPublicKey) {
+      const walletData = await prisma.walletData.findFirst({
+        where: { userId, isActive: true }
       });
+
+      if (!walletData) {
+        return res.status(404).json({
+          success: false,
+          error: 'WALLET_NOT_FOUND',
+          message: 'No active wallet found for user'
+        });
+      }
+
+      walletPublicKey = walletData.publicKey;
     }
 
     try {
-      const balance = await connection.getBalance(new PublicKey(walletData.publicKey));
+      const balance = await connection.getBalance(new PublicKey(walletPublicKey));
       const solBalance = balance / LAMPORTS_PER_SOL;
 
       res.json({
         success: true,
         data: {
-          publicKey: walletData.publicKey,
+          publicKey: walletPublicKey,
           balance: solBalance,
           lamports: balance
         }

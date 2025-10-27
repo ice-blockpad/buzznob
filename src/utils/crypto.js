@@ -8,7 +8,7 @@ function encryptPrivateKey(privateKey, password) {
   const key = crypto.scryptSync(password, 'salt', 32);
   const iv = crypto.randomBytes(16);
   
-  const cipher = crypto.createCipher(algorithm, key);
+  const cipher = crypto.createCipherGCM(algorithm, key, iv);
   cipher.setAAD(Buffer.from('buzznob-wallet', 'utf8'));
   
   let encrypted = cipher.update(privateKey, 'utf8', 'hex');
@@ -33,7 +33,7 @@ function decryptPrivateKey(encryptedData, password) {
   const iv = Buffer.from(encryptedData.iv, 'hex');
   const authTag = Buffer.from(encryptedData.authTag, 'hex');
   
-  const decipher = crypto.createDecipher(algorithm, key);
+  const decipher = crypto.createDecipherGCM(algorithm, key, iv);
   decipher.setAAD(Buffer.from('buzznob-wallet', 'utf8'));
   decipher.setAuthTag(authTag);
   
