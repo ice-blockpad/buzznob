@@ -211,6 +211,21 @@ router.get('/stats', authenticateToken, async (req, res) => {
           timeRemaining = sessionEndTime - now;
           currentMiningRate = activeSession.currentRate;
           sessionStartTime = activeSession.startedAt;
+        } else {
+          // Session has expired but is still marked as active - clean it up
+          console.log(`Cleaning up expired session ${activeSession.id} for user ${userId}`);
+          await updateMiningProgress(activeSession.id);
+          
+          // Re-fetch the session after cleanup to get updated status
+          const updatedSession = await prisma.miningSession.findUnique({
+            where: { id: activeSession.id }
+          });
+          
+          if (updatedSession && updatedSession.isCompleted && !updatedSession.isClaimed) {
+            // Session is now completed and ready to claim
+            readyToClaim = updatedSession.totalMined;
+            currentMiningRate = updatedSession.currentRate;
+          }
         }
       } else if (completedUnclaimedSession) {
         readyToClaim = completedUnclaimedSession.totalMined;
