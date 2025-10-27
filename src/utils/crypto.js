@@ -11,7 +11,7 @@ function encryptPrivateKey(privateKey, password) {
   const key = crypto.scryptSync(password, SALT, 32);
   const iv = crypto.randomBytes(16);
   
-  const cipher = crypto.createCipher(algorithm, key);
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
   
   let encrypted = cipher.update(privateKey, 'utf8', 'hex');
   encrypted += cipher.final('hex');
@@ -31,7 +31,7 @@ function decryptPrivateKey(encryptedData, password) {
   const key = crypto.scryptSync(password, SALT, 32);
   const iv = Buffer.from(encryptedData.iv, 'hex');
   
-  const decipher = crypto.createDecipher(algorithm, key);
+  const decipher = crypto.createDecipheriv(algorithm, key, iv);
   
   let decrypted = decipher.update(encryptedData.encrypted, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
