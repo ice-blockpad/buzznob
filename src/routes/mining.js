@@ -164,11 +164,14 @@ router.get('/stats', authenticateToken, async (req, res) => {
           select: { points: true, miningBalance: true }
         }),
         
-        // Get active mining session
+        // Get active mining session (only if it hasn't expired based on endsAt)
         prisma.miningSession.findFirst({
           where: { 
             userId, 
-            isActive: true 
+            isActive: true,
+            endsAt: {
+              gt: new Date() // Only get sessions that haven't reached their end time
+            }
           },
           orderBy: { startedAt: 'desc' }
         }),
@@ -203,38 +206,11 @@ router.get('/stats', authenticateToken, async (req, res) => {
       const now = new Date();
 
       if (activeSession) {
-        sessionStartTime = new Date(activeSession.startedAt);
-        const sessionEndTime = new Date(sessionStartTime.getTime() + miningCycleDuration);
-        
-        if (now < sessionEndTime) {
-          isMining = true;
-          timeRemaining = sessionEndTime - now;
-          currentMiningRate = activeSession.currentRate;
-          sessionStartTime = activeSession.startedAt;
-        } else {
-          // Session has expired - mark it as completed immediately
-          const sessionEndTime = new Date(sessionStartTime.getTime() + miningCycleDuration);
-          const finalMinedAmount = activeSession.totalMined + (activeSession.currentRate * (sessionEndTime - activeSession.lastUpdate) / (1000 * 60 * 60)) / 6;
-          
-          // Mark session as completed
-          await prisma.miningSession.update({
-            where: { id: activeSession.id },
-            data: {
-              isActive: false,
-              isCompleted: true,
-              completedAt: sessionEndTime,
-              totalMined: finalMinedAmount,
-              lastUpdate: sessionEndTime
-            }
-          });
-          
-          // Session is now completed and ready to claim
-          readyToClaim = finalMinedAmount;
-          currentMiningRate = activeSession.currentRate;
-          
-          // Update referrer rates since this user is no longer mining
-          setImmediate(() => updateReferrerMiningRates(userId));
-        }
+        // Session is active and hasn't reached its end time (database already filtered this)
+        isMining = true;
+        timeRemaining = activeSession.endsAt - now;
+        currentMiningRate = activeSession.currentRate;
+        sessionStartTime = activeSession.startedAt;
       } else if (completedUnclaimedSession) {
         readyToClaim = completedUnclaimedSession.totalMined;
         currentMiningRate = completedUnclaimedSession.currentRate;
@@ -328,14 +304,18 @@ router.post('/start', authenticateToken, async (req, res) => {
     const referralBonus = activeReferrals * 10; // 10% per active referral
     const initialRate = baseReward + (baseReward * referralBonus / 100);
     
+    const now = new Date();
+    const endsAt = new Date(now.getTime() + 6 * 60 * 60 * 1000); // 6 hours from now
+    
     const miningSession = await prisma.miningSession.create({
       data: {
         userId,
         baseReward,
         currentRate: initialRate,
         totalMined: 0,
-        lastUpdate: new Date(),
-        startedAt: new Date(),
+        lastUpdate: now,
+        startedAt: now,
+        endsAt: endsAt,
         isActive: true
       }
     });
