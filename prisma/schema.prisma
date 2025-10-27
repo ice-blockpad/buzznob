@@ -179,7 +179,7 @@ model MiningSession {
   id            String   @id @default(cuid()) @db.VarChar
   userId        String   @map("user_id") @db.VarChar
   startedAt     DateTime @default(now()) @map("started_at") 
-  endsAt        DateTime @default(dbgenerated("started_at + INTERVAL '6 hours'")) @map("ends_at") // Calculated end time (startedAt + 6 hours)
+  endsAt        DateTime @map("ends_at") // Calculated end time (startedAt + 6 hours)
   duration      Int      @default(21600) // 6 hours in seconds
   baseReward    Int      @default(20) @map("base_reward") // Base 20 tokens per 6-hour session
   currentRate   Float    @default(20) @map("current_rate") // Current mining rate (tokens per 6 hours)
