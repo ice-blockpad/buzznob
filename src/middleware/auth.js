@@ -4,10 +4,15 @@ const { prisma } = require('../config/database');
 // Verify JWT token and validate session in database
 const authenticateToken = async (req, res, next) => {
   try {
+    console.log('🔑 Auth middleware: Checking authentication for', req.method, req.path);
+    
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
+    console.log('🔑 Auth middleware: Token present:', !!token);
+
     if (!token) {
+      console.log('❌ Auth middleware: No token provided');
       return res.status(401).json({
         success: false,
         error: 'ACCESS_TOKEN_REQUIRED',
@@ -17,6 +22,8 @@ const authenticateToken = async (req, res, next) => {
 
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    console.log('🔑 Auth middleware: Token decoded for user:', decoded.userId);
     
     // Check if session exists in database and is active
     const session = await prisma.userSession.findFirst({

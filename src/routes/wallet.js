@@ -14,10 +14,17 @@ const connection = new Connection('https://api.mainnet-beta.solana.com');
 // Create new wallet
 router.post('/create', authenticateToken, async (req, res) => {
   try {
+    console.log('🔐 Wallet creation request received');
+    console.log('User ID:', req.user.id);
+    console.log('Request body:', req.body);
+    
     const userId = req.user.id;
     const { password } = req.body;
 
+    console.log('Password received:', password ? `${password.length} digits` : 'No password');
+
     if (!password || password.length !== 6) {
+      console.log('❌ Invalid password format');
       return res.status(400).json({
         success: false,
         error: 'INVALID_PASSWORD',
@@ -25,12 +32,15 @@ router.post('/create', authenticateToken, async (req, res) => {
       });
     }
 
+    console.log('✅ Password format valid');
+
     // Check if user already has a wallet
     const existingWallet = await prisma.walletData.findFirst({
       where: { userId, isActive: true }
     });
 
     if (existingWallet) {
+      console.log('❌ User already has a wallet');
       return res.status(400).json({
         success: false,
         error: 'WALLET_ALREADY_EXISTS',
@@ -38,14 +48,20 @@ router.post('/create', authenticateToken, async (req, res) => {
       });
     }
 
+    console.log('✅ No existing wallet found, proceeding with creation');
+
     // Generate new Solana keypair
     const keypair = Keypair.generate();
     const publicKey = keypair.publicKey.toString();
     const privateKey = Array.from(keypair.secretKey);
 
+    console.log('✅ Solana keypair generated');
+
     // Encrypt private key with user's PIN
     const encryptedPrivateKey = encryptPrivateKey(JSON.stringify(privateKey), password);
     const passwordHash = hashPassword(password);
+
+    console.log('✅ Private key encrypted and password hashed');
 
     // Store encrypted wallet data in database
     const walletData = await prisma.walletData.create({
@@ -58,12 +74,17 @@ router.post('/create', authenticateToken, async (req, res) => {
       }
     });
 
+    console.log('✅ Wallet data stored in database');
+
     // Update user's wallet address
     await prisma.user.update({
       where: { id: userId },
       data: { walletAddress: publicKey }
     });
 
+    console.log('✅ User wallet address updated');
+
+    console.log('🎉 Wallet creation successful!');
     res.json({
       success: true,
       message: 'Solana wallet created successfully',
@@ -75,7 +96,7 @@ router.post('/create', authenticateToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error creating wallet:', error);
+    console.error('❌ Error creating wallet:', error);
     res.status(500).json({
       success: false,
       error: 'WALLET_CREATE_ERROR',
