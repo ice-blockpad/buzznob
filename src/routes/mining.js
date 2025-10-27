@@ -305,7 +305,8 @@ router.post('/start', authenticateToken, async (req, res) => {
     const initialRate = baseReward + (baseReward * referralBonus / 100);
     
     const now = new Date();
-    const endsAt = new Date(now.getTime() + 6 * 60 * 60 * 1000); // 6 hours from now
+    const duration = 21600; // 6 hours in seconds (from schema default)
+    const endsAt = new Date(now.getTime() + duration * 1000); // Calculate end time using duration
     
     const miningSession = await prisma.miningSession.create({
       data: {
@@ -316,6 +317,7 @@ router.post('/start', authenticateToken, async (req, res) => {
         lastUpdate: now,
         startedAt: now,
         endsAt: endsAt,
+        duration: duration,
         isActive: true
       }
     });
@@ -328,7 +330,7 @@ router.post('/start', authenticateToken, async (req, res) => {
       data: {
         message: 'Mining started successfully. You can claim rewards after 6 hours.',
         isMining: true,
-        nextClaimTime: new Date(miningSession.startedAt.getTime() + 6 * 60 * 60 * 1000),
+        nextClaimTime: miningSession.endsAt,
         sessionId: miningSession.id
       }
     });
