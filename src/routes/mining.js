@@ -156,20 +156,21 @@ router.get('/stats', authenticateToken, async (req, res) => {
     const requestKey = `mining:stats:${userId}`;
     
     const stats = await deduplicateRequest(requestKey, async () => {
-      // First, clean up any expired sessions that are still marked as active
-      await prisma.miningSession.updateMany({
+      // First, finalize any expired sessions so totalMined is accurate when exposed as readyToClaim
+      const nowTs = new Date();
+      const expiredActiveSessions = await prisma.miningSession.findMany({
         where: {
           isActive: true,
           endsAt: {
-            lte: new Date() // Sessions that have reached their end time
+            lte: nowTs
           }
         },
-        data: {
-          isActive: false,
-          isCompleted: true,
-          completedAt: new Date()
-        }
+        select: { id: true }
       });
+
+      for (const s of expiredActiveSessions) {
+        await updateMiningProgress(s.id);
+      }
 
       // Simple queries - just fetch what we need
       const [user, activeSession, completedUnclaimedSession, referrals, completedSessionsCount] = await Promise.all([
@@ -235,7 +236,8 @@ router.get('/stats', authenticateToken, async (req, res) => {
         currentMiningRate = activeSession.currentRate;
         sessionStartTime = activeSession.startedAt;
       } else if (completedUnclaimedSession) {
-        readyToClaim = completedUnclaimedSession.totalMined;
+        // Ensure a rounded numeric value so UI properly shows the claim state
+        readyToClaim = parseFloat((completedUnclaimedSession.totalMined || 0).toFixed(4));
         currentMiningRate = completedUnclaimedSession.currentRate;
       }
 
@@ -296,6 +298,22 @@ router.post('/start', authenticateToken, async (req, res) => {
         completedAt: new Date()
       }
     });
+  // Finalize amounts on any sessions we just marked complete
+  const expiredForUser = await prisma.miningSession.findMany({
+    where: {
+      userId,
+      isCompleted: true,
+      isClaimed: false,
+      lastUpdate: { lt: new Date() }
+    },
+    select: { id: true, isActive: true, endsAt: true }
+  });
+  for (const s of expiredForUser) {
+    // Only finalize if it was previously active and has reached its end
+    if (s.endsAt <= new Date()) {
+      await updateMiningProgress(s.id);
+    }
+  }
     
     // Check if mining is already active (after cleanup)
     const activeSession = await prisma.miningSession.findFirst({
