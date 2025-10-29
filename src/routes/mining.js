@@ -24,16 +24,21 @@ async function updateMiningProgress(sessionId) {
       
       if (now >= sessionEndTime) {
         // Session has expired, mark as completed
-        const finalMinedAmount = session.totalMined + (session.currentRate * (now - session.lastUpdate) / (1000 * 60 * 60)) / 6;
+        // Accrue only up to the scheduled end time to avoid overcounting
+        const accrueUntil = sessionEndTime;
+        const elapsedTime = Math.max(0, accrueUntil - session.lastUpdate);
+        const elapsedHours = elapsedTime / (1000 * 60 * 60);
+        const minedSinceLastUpdate = (session.currentRate * elapsedHours) / 6;
+        const finalMinedAmount = session.totalMined + minedSinceLastUpdate;
         
         await tx.miningSession.update({
           where: { id: sessionId },
           data: {
             isActive: false,
             isCompleted: true,
-            completedAt: now,
+            completedAt: sessionEndTime,
             totalMined: finalMinedAmount,
-            lastUpdate: now
+            lastUpdate: sessionEndTime
           }
         });
         
@@ -42,15 +47,25 @@ async function updateMiningProgress(sessionId) {
         setImmediate(() => updateReferrerMiningRates(session.userId));
       } else {
         // Session is still active, update progress
-        const elapsedTime = now - session.lastUpdate;
-        const elapsedHours = elapsedTime / (1000 * 60 * 60);
+        // Calculate session end time to cap accrual at 6 hours
+        const sessionEndTime = new Date(session.startedAt.getTime() + 6 * 60 * 60 * 1000);
+        
+        // Cap elapsed time to not exceed the 6-hour session duration
+        const maxElapsedTime = Math.min(
+          now - session.lastUpdate,
+          sessionEndTime - session.lastUpdate
+        );
+        const elapsedHours = maxElapsedTime / (1000 * 60 * 60);
         const minedSinceLastUpdate = (session.currentRate * elapsedHours) / 6;
+        
+        // Don't update lastUpdate beyond the session end time
+        const newLastUpdate = Math.min(now, sessionEndTime);
         
         await tx.miningSession.update({
           where: { id: sessionId },
           data: {
             totalMined: session.totalMined + minedSinceLastUpdate,
-            lastUpdate: now
+            lastUpdate: newLastUpdate
           }
         });
       }
@@ -129,9 +144,27 @@ async function updateReferrerMiningRates(userId) {
 
         // Calculate tokens mined since last update
         const now = new Date();
-        const elapsedTime = now - lockedSession.lastUpdate;
-        const elapsedHours = elapsedTime / (1000 * 60 * 60);
+        // Get the original session to find startedAt
+        const fullSession = await tx.miningSession.findUnique({
+          where: { id: lockedSession.id },
+          select: { startedAt: true }
+        });
+        
+        if (!fullSession) return;
+        
+        // Calculate session end time to cap accrual at 6 hours
+        const sessionEndTime = new Date(fullSession.startedAt.getTime() + 6 * 60 * 60 * 1000);
+        
+        // Cap elapsed time to not exceed the 6-hour session duration
+        const maxElapsedTime = Math.min(
+          now - lockedSession.lastUpdate,
+          sessionEndTime - lockedSession.lastUpdate
+        );
+        const elapsedHours = maxElapsedTime / (1000 * 60 * 60);
         const minedSinceLastUpdate = (lockedSession.currentRate * elapsedHours) / 6;
+
+        // Don't update lastUpdate beyond the session end time
+        const newLastUpdate = Math.min(now, sessionEndTime);
 
         // Update the session
         await tx.miningSession.update({
@@ -139,7 +172,7 @@ async function updateReferrerMiningRates(userId) {
           data: {
             currentRate: newRate,
             totalMined: lockedSession.totalMined + minedSinceLastUpdate,
-            lastUpdate: now
+            lastUpdate: newLastUpdate
           }
         });
       });
@@ -283,8 +316,9 @@ router.post('/start', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     
-    // First, clean up any expired sessions that are still marked as active
-    await prisma.miningSession.updateMany({
+    // First, finalize amounts on expired sessions BEFORE marking them as inactive
+    // This ensures tokens are accrued correctly before the session is marked complete
+    const expiredActiveSessions = await prisma.miningSession.findMany({
       where: {
         userId,
         isActive: true,
@@ -292,28 +326,13 @@ router.post('/start', authenticateToken, async (req, res) => {
           lte: new Date() // Sessions that have reached their end time
         }
       },
-      data: {
-        isActive: false,
-        isCompleted: true,
-        completedAt: new Date()
-      }
+      select: { id: true }
     });
-  // Finalize amounts on any sessions we just marked complete
-  const expiredForUser = await prisma.miningSession.findMany({
-    where: {
-      userId,
-      isCompleted: true,
-      isClaimed: false,
-      lastUpdate: { lt: new Date() }
-    },
-    select: { id: true, isActive: true, endsAt: true }
-  });
-  for (const s of expiredForUser) {
-    // Only finalize if it was previously active and has reached its end
-    if (s.endsAt <= new Date()) {
+    
+    // Finalize amounts for each expired session (this will mark them as inactive)
+    for (const s of expiredActiveSessions) {
       await updateMiningProgress(s.id);
     }
-  }
     
     // Check if mining is already active (after cleanup)
     const activeSession = await prisma.miningSession.findFirst({
@@ -612,9 +631,19 @@ router.post('/update-rate', authenticateToken, async (req, res) => {
 
     // Calculate tokens mined since last update
     const now = new Date();
-    const elapsedTime = now - activeSession.lastUpdate;
-    const elapsedHours = elapsedTime / (1000 * 60 * 60);
+    // Calculate session end time to cap accrual at 6 hours
+    const sessionEndTime = new Date(activeSession.startedAt.getTime() + 6 * 60 * 60 * 1000);
+    
+    // Cap elapsed time to not exceed the 6-hour session duration
+    const maxElapsedTime = Math.min(
+      now - activeSession.lastUpdate,
+      sessionEndTime - activeSession.lastUpdate
+    );
+    const elapsedHours = maxElapsedTime / (1000 * 60 * 60);
     const minedSinceLastUpdate = (activeSession.currentRate * elapsedHours) / 6;
+
+    // Don't update lastUpdate beyond the session end time
+    const newLastUpdate = Math.min(now, sessionEndTime);
 
     // Update mining session with new rate and accumulated tokens
     const updatedSession = await prisma.miningSession.update({
@@ -622,7 +651,7 @@ router.post('/update-rate', authenticateToken, async (req, res) => {
       data: {
         currentRate: newRate,
         totalMined: activeSession.totalMined + minedSinceLastUpdate,
-        lastUpdate: now
+        lastUpdate: newLastUpdate
       }
     });
 
