@@ -31,6 +31,23 @@ app.set('trust proxy', 1);
 // Security middleware
 app.use(helmet());
 
+// Block access to dotfiles (e.g., /.env, /.git, backups) before any routing/static
+app.use((req, res, next) => {
+  // Allow ACME and other well-known paths
+  if (req.path.startsWith('/.well-known')) return next();
+
+  // Explicitly block .env and common backup extensions anywhere in the path
+  const blockedSensitive = /\/(?:core|modules|plugins|themes)?\/\.env(?:\.(?:save|bak|old))?(?:$|\/|\?)/i;
+  if (blockedSensitive.test(req.path)) return res.sendStatus(404);
+
+  // Block any other hidden files or directories (paths containing "/.")
+  // e.g. /.git, /.htaccess, /.ssh, /.hg, /.svn, /.DS_Store, etc.
+  const blockedDotfile = /\/(?:\.(?!well-known)[^/]+)(?:$|\/)/i;
+  if (blockedDotfile.test(req.path)) return res.sendStatus(404);
+
+  next();
+});
+
 // CORS configuration for mobile app
 app.use(cors({
   origin: function (origin, callback) {
@@ -92,13 +109,31 @@ app.use(cors({
   preflightContinue: false
 }));
 
-// Rate limiting
+// Rate limiting (general)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use(limiter);
+
+// Stricter limiter for unauthenticated requests (basic WAF against scanners)
+const unauthLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 60, // tighter burst for anonymous traffic
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use((req, res, next) => {
+  // Apply stricter limits to requests without Authorization header
+  // (Skip preflight and health checks to avoid noise)
+  if (req.method === 'OPTIONS' || req.path === '/health') return next();
+  if (!req.headers.authorization) return unauthLimiter(req, res, next);
+  return next();
+});
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
