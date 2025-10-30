@@ -131,9 +131,21 @@ app.use((req, res, next) => {
   // Apply stricter limits to requests without Authorization header
   // (Skip preflight and health checks to avoid noise)
   if (req.method === 'OPTIONS' || req.path === '/health') return next();
+  // Auth routes have their own dedicated limiter; skip here to avoid double-throttling
+  if (req.path.startsWith('/api/auth')) return next();
   if (!req.headers.authorization) return unauthLimiter(req, res, next);
   return next();
 });
+
+// Dedicated limiter for authentication endpoints (login/signup/oauth flows)
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30, // sufficient for legitimate flows, curbs bursts
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many auth requests. Please wait a moment and try again.'
+});
+app.use('/api/auth', authLimiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
