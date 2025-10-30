@@ -430,6 +430,8 @@ router.post('/finalize-account', async (req, res) => {
   try {
     const { 
       googleId, 
+      externalId, // generic identity id (e.g., Particle userId)
+      particleUserId, // optional alias
       email, 
       displayName, 
       firstName, 
@@ -440,11 +442,14 @@ router.post('/finalize-account', async (req, res) => {
       referralCode 
     } = req.body;
 
-    if (!googleId || !email || !username || !displayName) {
+    // Normalize user identity to a single external id; reuse googleId column for now
+    const normalizedId = googleId || externalId || particleUserId;
+
+    if (!normalizedId || !email || !username || !displayName) {
       return res.status(400).json({
         success: false,
         error: 'MISSING_REQUIRED_FIELDS',
-        message: 'Google ID, email, username, and display name are required'
+        message: 'Identity id, email, username, and display name are required'
       });
     }
 
@@ -468,7 +473,7 @@ router.post('/finalize-account', async (req, res) => {
 
     // Check if user already exists (may happen if OAuth updated existing user)
     let user = await prisma.user.findUnique({
-      where: { googleId }
+      where: { googleId: normalizedId }
     });
 
     if (user) {
@@ -515,7 +520,7 @@ router.post('/finalize-account', async (req, res) => {
       // Create the user account
       user = await prisma.user.create({
         data: {
-          googleId,
+          googleId: normalizedId,
           email,
           username,
           displayName,
