@@ -207,6 +207,32 @@ router.get('/google/callback', async (req, res) => {
   }
 });
 
+// Lightweight existence check used by mobile pre-profile flow
+// GET /auth/user-exists?externalId=...&email=...
+router.get('/user-exists', async (req, res) => {
+  try {
+    const { externalId, email } = req.query;
+    if (!externalId && !email) {
+      return res.status(400).json({ success: false, message: 'externalId or email required' });
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          externalId ? { googleId: externalId } : undefined,
+          email ? { email } : undefined,
+        ].filter(Boolean)
+      },
+      select: { id: true },
+    });
+
+    return res.json({ success: true, exists: !!user });
+  } catch (error) {
+    console.error('User exists check error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to check user existence' });
+  }
+});
+
 // Mobile Google OAuth
 router.post('/google-mobile', async (req, res) => {
   try {
