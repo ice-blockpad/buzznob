@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,150 +8,135 @@ datasource db {
 }
 
 model User {
-  id            String   @id @default(cuid()) @db.VarChar
-  email         String?  @unique
-  walletAddress String?  @unique @map("wallet_address")
-  username      String   @unique
-  googleId      String?  @unique @map("google_id")
-  displayName   String?  @map("display_name")
-  firstName     String?  @map("first_name")
-  lastName      String?  @map("last_name")
-  avatarUrl     String?  @map("avatar_url")
-  avatarData    String?  @map("avatar_data") @db.Text
-  avatarType    String?  @map("avatar_type")
-  points        Float    @default(0)
-  miningBalance Float    @default(0) @map("mining_balance") // Total claimed mining tokens
-  streakCount   Int      @default(0) @map("streak_count")
-  lastLogin     DateTime? @map("last_login")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-  
-  // New fields for enhanced functionality
-  referralCode  String?  @unique @map("referral_code")
-  referredBy    String?  @map("referred_by") @db.VarChar
-  isActive      Boolean  @default(true) @map("is_active")
-  isVerified    Boolean  @default(false) @map("is_verified")
-  role          String   @default("user") // user, admin, creator
-  kycStatus     String   @default("pending") @map("kyc_status") // pending, verified, rejected
-  kycData       Json?    @map("kyc_data")
-  preferences   Json?    @default("{}") // user preferences
-  bio           String?  @db.Text
-  website       String?
-  socialLinks   Json?    @map("social_links")
-
-  // Relations
-  activities    UserActivity[]
-  rewards       Reward[]
-  userBadges    UserBadge[]
-  leaderboards  Leaderboard[]
-  miningSessions MiningSession[]
-  miningClaims  MiningClaim[]
-  referrals     User[] @relation("UserReferrals")
-  referredByUser User? @relation("UserReferrals", fields: [referredBy], references: [id])
-  walletData      WalletData[]
-  kycSubmissions  KycSubmission[]
-  refreshTokens   RefreshToken[]
-  sessions        UserSession[]
-  referralRewards ReferralReward[] @relation("ReferralRewardsAsReferrer")
-  refereeRewards  ReferralReward[] @relation("ReferralRewardsAsReferee")
-  authoredArticles Article[] @relation("ArticleAuthor")
-  reviewedArticles Article[] @relation("ArticleReviewer")
-  followers        Follow[] @relation("UserFollowers")
-  following        Follow[] @relation("UserFollowing")
+  id               String           @id @default(cuid()) @db.VarChar
+  email            String?          @unique
+  walletAddress    String?          @unique @map("wallet_address")
+  username         String           @unique
+  externalId       String?          @unique @map("external_id") // Provider-specific ID (Google ID, Discord ID, Twitter ID, etc.)
+  particleUserId   String?          @map("particle_user_id") // Particle Network UUID
+  displayName      String?          @map("display_name")
+  firstName        String?          @map("first_name")
+  lastName         String?          @map("last_name")
+  avatarUrl        String?          @map("avatar_url")
+  points           Float            @default(0)
+  streakCount      Int              @default(0) @map("streak_count")
+  lastLogin        DateTime?        @map("last_login")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  referralCode     String?          @unique @map("referral_code")
+  referredBy       String?          @map("referred_by") @db.VarChar
+  isActive         Boolean          @default(true) @map("is_active")
+  isVerified       Boolean          @default(false) @map("is_verified")
+  role             String           @default("user")
+  kycStatus        String           @default("pending") @map("kyc_status")
+  kycData          Json?            @map("kyc_data")
+  preferences      Json?            @default("{}")
+  bio              String?
+  website          String?
+  socialLinks      Json?            @map("social_links")
+  avatarData       String?          @map("avatar_data")
+  avatarType       String?          @map("avatar_type")
+  miningBalance    Float            @default(0) @map("mining_balance")
+  authoredArticles Article[]        @relation("ArticleAuthor")
+  reviewedArticles Article[]        @relation("ArticleReviewer")
   dailyRewards     DailyReward[]
+  following        Follow[]         @relation("UserFollowing")
+  followers        Follow[]         @relation("UserFollowers")
+  kycSubmissions   KycSubmission[]
+  leaderboards     Leaderboard[]
+  miningClaims     MiningClaim[]
+  miningSessions   MiningSession[]
+  refereeRewards   ReferralReward[] @relation("ReferralRewardsAsReferee")
+  referralRewards  ReferralReward[] @relation("ReferralRewardsAsReferrer")
+  refreshTokens    RefreshToken[]
+  rewards          Reward[]
+  activities       UserActivity[]
+  userBadges       UserBadge[]
+  sessions         UserSession[]
+  referredByUser   User?            @relation("UserReferrals", fields: [referredBy], references: [id])
+  referrals        User[]           @relation("UserReferrals")
+  walletData       WalletData[]
 
   @@map("users")
 }
 
 model Article {
-  id                String    @id @default(cuid()) @db.VarChar
-  title             String
-  content           String    @db.Text
-  category          String    @db.Text
-  sourceUrl         String?   @map("source_url")
-  sourceName        String?   @map("source_name")
-  pointsValue       Int       @default(10) @map("points_value")
-  readTimeEstimate  Int?      @map("read_time_estimate") // in minutes
-  isFeatured        Boolean   @default(false) @map("is_featured")
-  imageUrl          String?   @map("image_url")
-  imageData         String?   @map("image_data") @db.Text
-  imageType         String?   @map("image_type")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-  
-  // Article review system fields
-  status            String    @default("pending") // pending, approved, rejected, published
-  authorId          String?   @map("author_id") @db.VarChar
-  reviewedBy        String?   @map("reviewed_by") @db.VarChar
-  reviewedAt        DateTime? @map("reviewed_at")
-  rejectionReason   String?   @map("rejection_reason") @db.Text
-  publishedAt       DateTime? @map("published_at")
-
-  // Relations
-  activities        UserActivity[]
-  author            User?     @relation("ArticleAuthor", fields: [authorId], references: [id])
-  reviewer          User?     @relation("ArticleReviewer", fields: [reviewedBy], references: [id])
+  id               String         @id @default(cuid()) @db.VarChar
+  title            String
+  content          String
+  category         String
+  sourceUrl        String?        @map("source_url")
+  sourceName       String?        @map("source_name")
+  pointsValue      Int            @default(10) @map("points_value")
+  readTimeEstimate Int?           @map("read_time_estimate")
+  isFeatured       Boolean        @default(false) @map("is_featured")
+  imageUrl         String?        @map("image_url")
+  imageData        String?        @map("image_data")
+  imageType        String?        @map("image_type")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  status           String         @default("pending")
+  authorId         String?        @map("author_id") @db.VarChar
+  reviewedBy       String?        @map("reviewed_by") @db.VarChar
+  reviewedAt       DateTime?      @map("reviewed_at")
+  rejectionReason  String?        @map("rejection_reason")
+  publishedAt      DateTime?      @map("published_at")
+  author           User?          @relation("ArticleAuthor", fields: [authorId], references: [id])
+  reviewer         User?          @relation("ArticleReviewer", fields: [reviewedBy], references: [id])
+  activities       UserActivity[]
 
   @@map("articles")
 }
 
 model UserActivity {
-  id            String   @id @default(cuid()) @db.VarChar
-  userId        String   @map("user_id") @db.VarChar
-  articleId     String   @map("article_id") @db.VarChar
-  pointsEarned  Int      @map("points_earned")
-  readDuration  Int?     @map("read_duration") // in seconds
-  completedAt   DateTime @default(now()) @map("completed_at")
-
-  // Relations
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  article       Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid()) @db.VarChar
+  userId       String   @map("user_id") @db.VarChar
+  articleId    String   @map("article_id") @db.VarChar
+  pointsEarned Int      @map("points_earned")
+  readDuration Int?     @map("read_duration")
+  completedAt  DateTime @default(now()) @map("completed_at")
+  article      Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, articleId])
   @@map("user_activities")
 }
 
 model Reward {
-  id          String      @id @default(cuid()) @db.VarChar
-  userId      String      @map("user_id") @db.VarChar
-  rewardType  String      @map("reward_type") @db.Text
-  rewardValue String      @map("reward_value")
-  status      String      @default("pending") @map("status") @db.Text
-  claimedAt   DateTime?   @map("claimed_at")
-  expiresAt   DateTime?   @map("expires_at")
-  createdAt   DateTime    @default(now()) @map("created_at")
-
-  // Relations
-  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid()) @db.VarChar
+  userId      String    @map("user_id") @db.VarChar
+  rewardType  String    @map("reward_type")
+  rewardValue String    @map("reward_value")
+  status      String    @default("pending") @map("status")
+  claimedAt   DateTime? @map("claimed_at")
+  expiresAt   DateTime? @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("rewards")
 }
 
 model Badge {
-  id            String   @id @default(cuid()) @db.VarChar
-  name          String   @unique
-  description   String?
-  iconUrl       String?  @map("icon_url")
-  pointsRequired Int     @map("points_required")
-  pointsValue   Int      @default(0) @map("points_value")
-  category      String?
-
-  // Relations
-  userBadges    UserBadge[]
+  id             String      @id @default(cuid()) @db.VarChar
+  name           String      @unique
+  description    String?
+  iconUrl        String?     @map("icon_url")
+  pointsRequired Int         @map("points_required")
+  category       String?
+  pointsValue    Int         @default(0) @map("points_value")
+  userBadges     UserBadge[]
 
   @@map("badges")
 }
 
 model UserBadge {
-  id        String   @id @default(cuid()) @db.VarChar
-  userId    String   @map("user_id") @db.VarChar
-  badgeId   String   @map("badge_id") @db.VarChar
-  earnedAt  DateTime @default(now()) @map("earned_at")
-  isLocked  Boolean  @default(false) @map("is_locked")
-
-  // Relations
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  id       String   @id @default(cuid()) @db.VarChar
+  userId   String   @map("user_id") @db.VarChar
+  badgeId  String   @map("badge_id") @db.VarChar
+  earnedAt DateTime @default(now()) @map("earned_at")
+  isLocked Boolean  @default(false) @map("is_locked")
+  badge    Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, badgeId])
   @@map("user_badges")
@@ -163,12 +145,10 @@ model UserBadge {
 model Leaderboard {
   id        String   @id @default(cuid()) @db.VarChar
   userId    String   @map("user_id") @db.VarChar
-  period    String   // 'daily', 'weekly', 'monthly', 'all_time'
+  period    String
   points    Int
   rank      Int
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
-
-  // Relations
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, period])
@@ -176,23 +156,21 @@ model Leaderboard {
 }
 
 model MiningSession {
-  id            String   @id @default(cuid()) @db.VarChar
-  userId        String   @map("user_id") @db.VarChar
-  startedAt     DateTime @default(now()) @map("started_at")
-  endsAt        DateTime @map("ends_at") // Calculated end time (startedAt + 6 hours)
-  duration      Int      @default(21600) // 6 hours in seconds
-  baseReward    Int      @default(20) @map("base_reward") // Base 20 tokens per 6-hour session
-  currentRate   Float    @default(20) @map("current_rate") // Current mining rate (tokens per 6 hours)
-  totalMined    Float    @default(0) @map("total_mined") // Total tokens mined so far
-  lastUpdate    DateTime @default(now()) @map("last_update") // Last time rate was updated
-  isActive      Boolean  @default(true) @map("is_active")
-  isCompleted   Boolean  @default(false) @map("is_completed") // Whether the session has been completed (time expired)
-  isClaimed     Boolean  @default(false) @map("is_claimed") // Whether the session has been claimed
-  completedAt   DateTime? @map("completed_at") // When the session was completed
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  // Relations
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid()) @db.VarChar
+  userId      String    @map("user_id") @db.VarChar
+  startedAt   DateTime  @default(now()) @map("started_at")
+  duration    Int       @default(21600)
+  baseReward  Int       @default(20) @map("base_reward")
+  currentRate Float     @default(20) @map("current_rate")
+  totalMined  Float     @default(0) @map("total_mined")
+  lastUpdate  DateTime  @default(now()) @map("last_update")
+  isActive    Boolean   @default(true) @map("is_active")
+  isCompleted Boolean   @default(false) @map("is_completed")
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  isClaimed   Boolean   @default(false) @map("is_claimed")
+  endsAt      DateTime  @map("ends_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("mining_sessions")
 }
@@ -205,117 +183,105 @@ model MiningClaim {
   referralBonus Int      @map("referral_bonus")
   claimedAt     DateTime @default(now()) @map("claimed_at")
   createdAt     DateTime @default(now()) @map("created_at")
-
-  // Relations
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("mining_claims")
 }
 
 model WalletData {
-  id                String   @id @default(cuid()) @db.VarChar
-  userId            String   @map("user_id") @db.VarChar
-  publicKey         String   @map("public_key")
-  encryptedPrivateKey String @map("encrypted_private_key") @db.Text
-  passwordHash      String   @map("password_hash")
-  isActive          Boolean  @default(true) @map("is_active")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                  String   @id @default(cuid()) @db.VarChar
+  userId              String   @map("user_id") @db.VarChar
+  publicKey           String   @map("public_key")
+  encryptedPrivateKey String   @map("encrypted_private_key")
+  passwordHash        String   @map("password_hash")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, publicKey])
   @@map("wallet_data")
 }
 
 model KycSubmission {
-  id            String   @id @default(cuid()) @db.VarChar
-  userId        String   @map("user_id") @db.VarChar
-  fullName      String   @map("full_name")
-  dateOfBirth   String   @map("date_of_birth")
-  address       String   @db.Text
-  phoneNumber   String   @map("phone_number")
-  idType        String   @map("id_type") // passport, driver_license, national_id
-  idNumber      String   @map("id_number")
-  idImageUrl    String   @map("id_image_url")
-  selfieUrl     String   @map("selfie_url")
-  status        String   @default("pending") // pending, verified, rejected
-  rejectionReason String? @map("rejection_reason") @db.Text
-  reviewedBy    String?  @map("reviewed_by") @db.VarChar
-  reviewedAt    DateTime? @map("reviewed_at")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  // Relations
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String    @id @default(cuid()) @db.VarChar
+  userId          String    @map("user_id") @db.VarChar
+  fullName        String    @map("full_name")
+  dateOfBirth     String    @map("date_of_birth")
+  address         String
+  phoneNumber     String    @map("phone_number")
+  idType          String    @map("id_type")
+  idNumber        String    @map("id_number")
+  idImageUrl      String    @map("id_image_url")
+  selfieUrl       String    @map("selfie_url")
+  status          String    @default("pending")
+  rejectionReason String?   @map("rejection_reason")
+  reviewedBy      String?   @map("reviewed_by") @db.VarChar
+  reviewedAt      DateTime? @map("reviewed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("kyc_submissions")
 }
 
 model RefreshToken {
-  id          String   @id @default(cuid()) @db.VarChar
-  userId      String   @map("user_id") @db.VarChar
-  tokenHash   String   @map("token_hash") @db.Text
-  isRevoked   Boolean  @default(false) @map("is_revoked")
-  expiresAt   DateTime @map("expires_at")
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid()) @db.VarChar
+  userId    String   @map("user_id") @db.VarChar
+  tokenHash String   @map("token_hash")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("refresh_tokens")
 }
 
 model UserSession {
-  id          String   @id @default(cuid()) @db.VarChar
-  userId      String   @map("user_id") @db.VarChar
-  accessToken String   @map("access_token") @db.Text
-  refreshToken String  @map("refresh_token") @db.Text
-  deviceInfo  String?  @map("device_info") @db.Text
-  ipAddress   String?  @map("ip_address") @db.VarChar
-  userAgent   String?  @map("user_agent") @db.Text
-  isActive    Boolean  @default(true) @map("is_active")
-  expiresAt   DateTime @map("expires_at")
-  lastUsedAt  DateTime @default(now()) @map("last_used_at")
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid()) @db.VarChar
+  userId       String   @map("user_id") @db.VarChar
+  accessToken  String   @map("access_token")
+  refreshToken String   @map("refresh_token")
+  deviceInfo   String?  @map("device_info")
+  ipAddress    String?  @map("ip_address") @db.VarChar
+  userAgent    String?  @map("user_agent")
+  isActive     Boolean  @default(true) @map("is_active")
+  expiresAt    DateTime @map("expires_at")
+  lastUsedAt   DateTime @default(now()) @map("last_used_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_sessions")
 }
 
 model AvailableReward {
-  id              String   @id @default(cuid()) @db.VarChar
-  name            String
-  description     String?  @db.Text
-  type            String   // gift_card, crypto_token, merchandise
-  category        String   // gift_card, crypto_token
-  pointsRequired  Int      @map("points_required")
-  value           String   // e.g., "10" for $10 gift card, "100" for 100 tokens
-  currency        String?  // USD, BUZZ, etc.
-  isActive        Boolean  @default(true) @map("is_active")
-  stock           Int?     // null for unlimited
-  imageUrl        String?  @map("image_url")
-  terms           String?  @db.Text
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(cuid()) @db.VarChar
+  name           String
+  description    String?
+  type           String
+  category       String
+  pointsRequired Int      @map("points_required")
+  value          String
+  currency       String?
+  isActive       Boolean  @default(true) @map("is_active")
+  stock          Int?
+  imageUrl       String?  @map("image_url")
+  terms          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("available_rewards")
 }
 
 model ReferralReward {
-  id              String   @id @default(cuid()) @db.VarChar
-  referrerId      String   @map("referrer_id") @db.VarChar
-  refereeId       String   @map("referee_id") @db.VarChar
-  pointsEarned    Int      @map("points_earned")
-  status          String   @default("pending") // pending, claimed
-  createdAt       DateTime @default(now()) @map("created_at")
-
-  // Relations
-  referrer        User     @relation("ReferralRewardsAsReferrer", fields: [referrerId], references: [id])
-  referee         User     @relation("ReferralRewardsAsReferee", fields: [refereeId], references: [id])
+  id           String   @id @default(cuid()) @db.VarChar
+  referrerId   String   @map("referrer_id") @db.VarChar
+  refereeId    String   @map("referee_id") @db.VarChar
+  pointsEarned Int      @map("points_earned")
+  status       String   @default("pending")
+  createdAt    DateTime @default(now()) @map("created_at")
+  referee      User     @relation("ReferralRewardsAsReferee", fields: [refereeId], references: [id])
+  referrer     User     @relation("ReferralRewardsAsReferrer", fields: [referrerId], references: [id])
 
   @@unique([referrerId, refereeId])
   @@map("referral_rewards")
@@ -326,8 +292,6 @@ model Follow {
   followerId  String   @map("follower_id") @db.VarChar
   followingId String   @map("following_id") @db.VarChar
   createdAt   DateTime @default(now()) @map("created_at")
-
-  // Relations
   follower    User     @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
   following   User     @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
 
@@ -336,17 +300,13 @@ model Follow {
 }
 
 model DailyReward {
-  id            String   @id @default(cuid()) @db.VarChar
-  userId        String   @map("user_id") @db.VarChar
-  pointsEarned  Int      @map("points_earned")
-  streakCount   Int      @map("streak_count")
-  streakBonus   Int      @map("streak_bonus")
-  claimedAt     DateTime @default(now()) @map("claimed_at")
-
-  // Relations
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid()) @db.VarChar
+  userId       String   @map("user_id") @db.VarChar
+  pointsEarned Int      @map("points_earned")
+  streakCount  Int      @map("streak_count")
+  streakBonus  Int      @map("streak_bonus")
+  claimedAt    DateTime @default(now()) @map("claimed_at")
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("daily_rewards")
 }
-
-// Note: Using string types instead of enums to match database schema

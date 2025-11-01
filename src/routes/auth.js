@@ -70,9 +70,9 @@ router.get('/google/callback', async (req, res) => {
     const payload = ticket.getPayload();
     const { sub: googleId, email, name, given_name, family_name, picture } = payload;
 
-    // Check if user exists
+    // Check if user exists by externalId (Google ID)
     let user = await prisma.user.findUnique({
-      where: { googleId }
+      where: { externalId: googleId }
     });
 
     if (!user) {
@@ -82,11 +82,11 @@ router.get('/google/callback', async (req, res) => {
       });
 
       if (user) {
-        // Update existing user with Google ID
+        // Update existing user with Google ID as externalId
         user = await prisma.user.update({
           where: { id: user.id },
           data: {
-            googleId,
+            externalId: googleId, // Store Google ID as externalId
             displayName: name,
             firstName: given_name || name?.split(' ')[0] || '',
             lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
@@ -99,7 +99,7 @@ router.get('/google/callback', async (req, res) => {
         // For new users, don't create account yet - store temporary session data
         // This will be used to create the account after profile completion and referral choice
         const tempSessionData = {
-            googleId,
+            externalId: googleId, // Use externalId instead of googleId
             email,
             displayName: name,
             firstName: given_name || name?.split(' ')[0] || '',
@@ -208,20 +208,17 @@ router.get('/google/callback', async (req, res) => {
 });
 
 // Lightweight existence check used by mobile pre-profile flow
-// GET /auth/user-exists?externalId=...&email=...
+// GET /auth/user-exists?externalId=...&email=...&particleUserId=...
 router.get('/user-exists', async (req, res) => {
   try {
-    const { externalId, email } = req.query;
-    if (!externalId && !email) {
-      return res.status(400).json({ success: false, message: 'externalId or email required' });
+    const { particleUserId } = req.query;
+    if (!particleUserId) {
+      return res.status(400).json({ success: false, message: 'particleUserId required' });
     }
 
     const user = await prisma.user.findFirst({
       where: {
-        OR: [
-          externalId ? { googleId: externalId } : undefined,
-          email ? { email } : undefined,
-        ].filter(Boolean)
+        particleUserId: particleUserId
       },
       select: { id: true },
     });
@@ -289,9 +286,9 @@ router.post('/google-mobile', async (req, res) => {
       picture: userInfo.picture
     };
 
-    // Check if user exists
+    // Check if user exists by externalId (Google ID)
     let user = await prisma.user.findUnique({
-      where: { googleId }
+      where: { externalId: googleId }
     });
 
     if (!user) {
@@ -301,11 +298,11 @@ router.post('/google-mobile', async (req, res) => {
       });
 
       if (user) {
-        // Update existing user with Google ID
+        // Update existing user with Google ID as externalId
         user = await prisma.user.update({
           where: { id: user.id },
           data: {
-            googleId,
+            externalId: googleId, // Store Google ID as externalId
             displayName: name,
             firstName: given_name || name?.split(' ')[0] || '',
             lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
@@ -318,7 +315,7 @@ router.post('/google-mobile', async (req, res) => {
         // For new users, don't create account yet - store temporary session data
         // This will be used to create the account after profile completion and referral choice
         const tempSessionData = {
-            googleId,
+            externalId: googleId, // Use externalId instead of googleId
             email,
             displayName: name,
             firstName: given_name || name?.split(' ')[0] || '',
@@ -455,9 +452,10 @@ router.post('/check-username', async (req, res) => {
 router.post('/finalize-account', async (req, res) => {
   try {
     const { 
-      googleId, 
-      externalId, // generic identity id (e.g., Particle userId)
-      particleUserId, // optional alias
+      googleId, // Deprecated: kept for backward compatibility, use externalId instead
+      externalId, // Provider-specific ID (Google ID, Discord ID, Twitter ID, etc.)
+      particleUserId, // Particle Network UUID
+      providerType, // 'google', 'apple', 'facebook', 'discord', 'github', 'twitter', 'twitch', 'microsoft', 'linkedin'
       email, 
       displayName, 
       firstName, 
@@ -468,14 +466,15 @@ router.post('/finalize-account', async (req, res) => {
       referralCode 
     } = req.body;
 
-    // Normalize user identity to a single external id; reuse googleId column for now
-    const normalizedId = googleId || externalId || particleUserId;
+    // Normalize user identity - use externalId (or googleId for backward compatibility)
+    // externalId is the provider-specific ID (Google ID, Discord ID, Twitter ID, etc.)
+    const providerExternalId = externalId || googleId; // Support both for backward compatibility
 
-    if (!normalizedId || !email || !username || !displayName) {
+    if (!providerExternalId || !email || !username || !displayName) {
       return res.status(400).json({
         success: false,
         error: 'MISSING_REQUIRED_FIELDS',
-        message: 'Identity id, email, username, and display name are required'
+        message: 'External ID (provider-specific ID), email, username, and display name are required'
       });
     }
 
@@ -497,9 +496,11 @@ router.post('/finalize-account', async (req, res) => {
       referrerId = referrer.id;
     }
 
-    // Check if user already exists (may happen if OAuth updated existing user)
-    let user = await prisma.user.findUnique({
-      where: { googleId: normalizedId }
+    // Check if user already exists by externalId (provider-specific ID) or particleUserId
+    let user = await prisma.user.findFirst({
+      where: {
+        particleUserId: particleUserId
+      }
     });
 
     if (user) {
@@ -507,6 +508,8 @@ router.post('/finalize-account', async (req, res) => {
       user = await prisma.user.update({
         where: { id: user.id },
         data: {
+          externalId: providerExternalId, // Update externalId if changed
+          particleUserId: particleUserId || user.particleUserId, // Update particleUserId if provided
           username,
           displayName,
           firstName: displayName.split(' ')[0] || '',
@@ -546,7 +549,8 @@ router.post('/finalize-account', async (req, res) => {
       // Create the user account
       user = await prisma.user.create({
         data: {
-          googleId: normalizedId,
+          externalId: providerExternalId, // Provider-specific ID (Google ID, Discord ID, etc.)
+          particleUserId: particleUserId || undefined, // Particle Network UUID
           email,
           username,
           displayName,

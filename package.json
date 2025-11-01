@@ -21,8 +21,7 @@
     "health": "node healthcheck.js",
     "db:init": "node src/scripts/initDatabase.js",
     "db:force-seed": "set FORCE_SEED=true && node src/scripts/initDatabase.js",
-    "manage-admin": "node src/scripts/manageAdmin.js",
-    "db:reset-seed": "node reset-and-seed.js"
+    "manage-admin": "node src/scripts/manageAdmin.js"
   },
   "dependencies": {
     "@prisma/client": "^5.7.1",
