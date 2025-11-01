@@ -466,15 +466,18 @@ router.post('/finalize-account', async (req, res) => {
       referralCode 
     } = req.body;
 
-    // Normalize user identity - use externalId (or googleId for backward compatibility)
+    // Normalize user identity
     // externalId is the provider-specific ID (Google ID, Discord ID, Twitter ID, etc.)
+    // For email/OTP users, externalId may be undefined - they only have particleUserId
     const providerExternalId = externalId || googleId; // Support both for backward compatibility
 
-    if (!providerExternalId || !email || !username || !displayName) {
+    // particleUserId is REQUIRED (all Particle Network users have this)
+    // externalId is optional (only present for social auth providers, not email/OTP)
+    if (!particleUserId || !email || !username || !displayName) {
       return res.status(400).json({
         success: false,
         error: 'MISSING_REQUIRED_FIELDS',
-        message: 'External ID (provider-specific ID), email, username, and display name are required'
+        message: 'Particle User ID, email, username, and display name are required'
       });
     }
 
@@ -508,7 +511,8 @@ router.post('/finalize-account', async (req, res) => {
       user = await prisma.user.update({
         where: { id: user.id },
         data: {
-          externalId: providerExternalId, // Update externalId if changed
+          // Only update externalId if provided (social auth users), leave unchanged for email/OTP users
+          ...(providerExternalId && { externalId: providerExternalId }),
           particleUserId: particleUserId || user.particleUserId, // Update particleUserId if provided
           username,
           displayName,
@@ -549,8 +553,9 @@ router.post('/finalize-account', async (req, res) => {
       // Create the user account
       user = await prisma.user.create({
         data: {
-          externalId: providerExternalId, // Provider-specific ID (Google ID, Discord ID, etc.)
-          particleUserId: particleUserId || undefined, // Particle Network UUID
+          // Only set externalId if provided (social auth users), leave null for email/OTP users
+          ...(providerExternalId && { externalId: providerExternalId }),
+          particleUserId: particleUserId, // Particle Network UUID (required)
           email,
           username,
           displayName,

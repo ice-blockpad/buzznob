@@ -16,7 +16,7 @@ router.get('/profile', authenticateToken, async (req, res) => {
       // Use a single query with raw SQL for better performance
       const result = await prisma.$queryRaw`
         SELECT 
-          u.id, u.username, u.email, u.google_id as "googleId", u.wallet_address as "walletAddress",
+          u.id, u.username, u.email, u.external_id as "externalId", u.particle_user_id as "particleUserId", u.wallet_address as "walletAddress",
           u.display_name as "displayName", u.role, u.first_name as "firstName", u.last_name as "lastName",
           u.avatar_url as "avatarUrl", u.avatar_data as "avatarData", u.avatar_type as "avatarType",
           u.points, u.streak_count as "streakCount", u.last_login as "lastLogin", 
@@ -105,7 +105,8 @@ router.put('/profile', authenticateToken, async (req, res) => {
         id: true,
         username: true,
         email: true,
-        googleId: true,
+        externalId: true,
+        particleUserId: true,
         walletAddress: true,
         displayName: true,
         role: true,
@@ -204,7 +205,8 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
         id: true,
         username: true,
         email: true,
-        googleId: true,
+        externalId: true,
+        particleUserId: true,
         walletAddress: true,
         displayName: true,
         firstName: true,
