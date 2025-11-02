@@ -117,7 +117,7 @@ router.get('/google/callback', async (req, res) => {
       });
     }
 
-    // Generate tokens
+    // Generate jwt tokens
     const accessToken = generateToken(user.id);
     const refreshToken = generateRefreshToken(user.id);
 
