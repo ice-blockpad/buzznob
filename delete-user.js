@@ -4,7 +4,7 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 async function deleteUser() {
-  const emailToDelete = 'tonwifhat@gmail.com';
+  const emailToDelete = 'just2william@gmail.com';
   
   try {
     console.log(`🔍 Looking for user with email: ${emailToDelete}`);

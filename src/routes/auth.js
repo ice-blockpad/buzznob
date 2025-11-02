@@ -499,12 +499,32 @@ router.post('/finalize-account', async (req, res) => {
       referrerId = referrer.id;
     }
 
-    // Check if user already exists by externalId (provider-specific ID) or particleUserId
+    // Check if user already exists by particleUserId (primary check - this is the correct check)
     let user = await prisma.user.findFirst({
       where: {
         particleUserId: particleUserId
       }
     });
+
+    // If not found by particleUserId, check by email to detect potential account conflicts
+    // IMPORTANT: Different particleUserId = different Particle account = different wallet address
+    // We should NOT automatically merge accounts as this would change the user's wallet address
+    if (!user && email) {
+      const existingUserByEmail = await prisma.user.findUnique({
+        where: { email: email }
+      });
+      
+      if (existingUserByEmail) {
+        // User with this email exists but has a different particleUserId
+        // This means they're trying to connect a different Particle account
+        // Don't merge - return error instead to prevent wallet address confusion
+        return res.status(400).json({
+          success: false,
+          error: 'EMAIL_ALREADY_EXISTS',
+          message: 'An account with this email already exists. Please use your original login method. If you need to link accounts, please contact support.'
+        });
+      }
+    }
 
     if (user) {
       // User already exists, update with new profile data
@@ -513,12 +533,14 @@ router.post('/finalize-account', async (req, res) => {
         data: {
           // Only update externalId if provided (social auth users), leave unchanged for email/OTP users
           ...(providerExternalId && { externalId: providerExternalId }),
-          particleUserId: particleUserId || user.particleUserId, // Update particleUserId if provided
+          // Keep the same particleUserId (don't change it - it's tied to the wallet address)
+          particleUserId: user.particleUserId, // Don't update particleUserId - it's tied to wallet
           username,
           displayName,
           firstName: displayName.split(' ')[0] || '',
           lastName: displayName.split(' ').slice(1).join(' ') || '',
           bio: bio || '',
+          avatarUrl: avatarUrl || user.avatarUrl, // Preserve existing avatar if new one not provided
           lastLogin: new Date(),
         }
       });
