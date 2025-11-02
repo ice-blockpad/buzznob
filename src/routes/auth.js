@@ -70,65 +70,45 @@ router.get('/google/callback', async (req, res) => {
     const payload = ticket.getPayload();
     const { sub: googleId, email, name, given_name, family_name, picture } = payload;
 
-    // Check if user exists by externalId (Google ID)
+    // Check if user exists by externalId (Google ID) only
+    // Email is no longer unique - users can register freely with any auth type
     let user = await prisma.user.findUnique({
       where: { externalId: googleId }
     });
 
     if (!user) {
-      // Check if user exists with same email
-      user = await prisma.user.findUnique({
-        where: { email }
-      });
+      // For new users, don't create account yet - store temporary session data
+      // This will be used to create the account after profile completion and referral choice
+      const tempSessionData = {
+        externalId: googleId, // Use externalId instead of googleId
+        email,
+        displayName: name,
+        firstName: given_name || name?.split(' ')[0] || '',
+        lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
+        avatarUrl: picture,
+        isNewUser: true
+      };
 
-      if (user) {
-        // Update existing user with Google ID as externalId
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            externalId: googleId, // Store Google ID as externalId
-            displayName: name,
-            firstName: given_name || name?.split(' ')[0] || '',
-            lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
-            avatarUrl: picture,
-            lastLogin: new Date(),
-            referralCode: user.referralCode || generateUniqueReferralCode(),
-          }
-        });
-      } else {
-        // For new users, don't create account yet - store temporary session data
-        // This will be used to create the account after profile completion and referral choice
-        const tempSessionData = {
-            externalId: googleId, // Use externalId instead of googleId
-            email,
-            displayName: name,
-            firstName: given_name || name?.split(' ')[0] || '',
-            lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
-            avatarUrl: picture,
-          isNewUser: true
-        };
-
-        // For new users, redirect back to app with temp data
-        // The app will handle the profile completion flow
-        if (state && state !== 'default' && /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i.test(state)) {
-          const returnUrl = state;
-          const userDataParam = encodeURIComponent(JSON.stringify(tempSessionData));
-          const redirectTo = `${returnUrl}#accessToken=null&refreshToken=null&requiresProfileCompletion=true&userData=${userDataParam}`;
-          return res.redirect(302, redirectTo);
-        }
+      // For new users, redirect back to app with temp data
+      // The app will handle the profile completion flow
+      if (state && state !== 'default' && /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//i.test(state)) {
+        const returnUrl = state;
+        const userDataParam = encodeURIComponent(JSON.stringify(tempSessionData));
+        const redirectTo = `${returnUrl}#accessToken=null&refreshToken=null&requiresProfileCompletion=true&userData=${userDataParam}`;
+        return res.redirect(302, redirectTo);
+      }
 
         // Default: return JSON response (mobile or direct API usage)
-        return res.json({
-          success: true,
-          message: 'New user - profile completion required',
-          data: {
-            user: tempSessionData,
-            accessToken: null, // No token until account is finalized
-            refreshToken: null,
-            requiresProfileCompletion: true
-          }
-        });
-      }
+      return res.json({
+        success: true,
+        message: 'New user - profile completion required',
+        data: {
+          user: tempSessionData,
+          accessToken: null, // No token until account is finalized
+          refreshToken: null,
+          requiresProfileCompletion: true
+        }
+      });
     } else {
       // Update last login
       user = await prisma.user.update({
@@ -286,57 +266,37 @@ router.post('/google-mobile', async (req, res) => {
       picture: userInfo.picture
     };
 
-    // Check if user exists by externalId (Google ID)
+    // Check if user exists by externalId (Google ID) only
+    // Email is no longer unique - users can register freely with any auth type
     let user = await prisma.user.findUnique({
       where: { externalId: googleId }
     });
 
     if (!user) {
-      // Check if user exists with same email
-      user = await prisma.user.findUnique({
-        where: { email }
+      // For new users, don't create account yet - store temporary session data
+      // This will be used to create the account after profile completion and referral choice
+      const tempSessionData = {
+        externalId: googleId, // Use externalId instead of googleId
+        email,
+        displayName: name,
+        firstName: given_name || name?.split(' ')[0] || '',
+        lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
+        avatarUrl: picture,
+        isNewUser: true
+      };
+
+      // Store temporary session data (we'll use this in the finalize endpoint)
+      // For now, return the temp data to frontend
+      return res.json({
+        success: true,
+        message: 'New user - profile completion required',
+        data: {
+          user: tempSessionData,
+          accessToken: null, // No token until account is finalized
+          refreshToken: null,
+          requiresProfileCompletion: true
+        }
       });
-
-      if (user) {
-        // Update existing user with Google ID as externalId
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            externalId: googleId, // Store Google ID as externalId
-            displayName: name,
-            firstName: given_name || name?.split(' ')[0] || '',
-            lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
-            avatarUrl: picture,
-            lastLogin: new Date(),
-            referralCode: user.referralCode || generateUniqueReferralCode(),
-          }
-        });
-      } else {
-        // For new users, don't create account yet - store temporary session data
-        // This will be used to create the account after profile completion and referral choice
-        const tempSessionData = {
-            externalId: googleId, // Use externalId instead of googleId
-            email,
-            displayName: name,
-            firstName: given_name || name?.split(' ')[0] || '',
-            lastName: family_name || name?.split(' ').slice(1).join(' ') || '',
-            avatarUrl: picture,
-          isNewUser: true
-        };
-
-        // Store temporary session data (we'll use this in the finalize endpoint)
-        // For now, return the temp data to frontend
-        return res.json({
-          success: true,
-          message: 'New user - profile completion required',
-            data: {
-            user: tempSessionData,
-            accessToken: null, // No token until account is finalized
-            refreshToken: null,
-            requiresProfileCompletion: true
-          }
-        });
-      }
     } else {
       // Update last login
       user = await prisma.user.update({
@@ -473,13 +433,17 @@ router.post('/finalize-account', async (req, res) => {
 
     // particleUserId is REQUIRED (all Particle Network users have this)
     // externalId is optional (only present for social auth providers, not email/OTP)
-    if (!particleUserId || !email || !username || !displayName) {
+    // email is optional (some providers like Twitter may not provide email)
+    if (!particleUserId || !username || !displayName) {
       return res.status(400).json({
         success: false,
         error: 'MISSING_REQUIRED_FIELDS',
-        message: 'Particle User ID, email, username, and display name are required'
+        message: 'Particle User ID, username, and display name are required'
       });
     }
+    
+    // Normalize email - store undefined if not provided (important for providers without email)
+    const normalizedEmail = email && email.trim() ? email.trim() : undefined;
 
     // Validate referral code if provided (do this first for both existing and new users)
     let referrerId = null;
@@ -500,31 +464,12 @@ router.post('/finalize-account', async (req, res) => {
     }
 
     // Check if user already exists by particleUserId (primary check - this is the correct check)
-    let user = await prisma.user.findFirst({
+    // particleUserId is unique per Particle Network account, which is what we want
+    let user = await prisma.user.findUnique({
       where: {
         particleUserId: particleUserId
       }
     });
-
-    // If not found by particleUserId, check by email to detect potential account conflicts
-    // IMPORTANT: Different particleUserId = different Particle account = different wallet address
-    // We should NOT automatically merge accounts as this would change the user's wallet address
-    if (!user && email) {
-      const existingUserByEmail = await prisma.user.findUnique({
-        where: { email: email }
-      });
-      
-      if (existingUserByEmail) {
-        // User with this email exists but has a different particleUserId
-        // This means they're trying to connect a different Particle account
-        // Don't merge - return error instead to prevent wallet address confusion
-        return res.status(400).json({
-          success: false,
-          error: 'EMAIL_ALREADY_EXISTS',
-          message: 'An account with this email already exists. Please use your original login method. If you need to link accounts, please contact support.'
-        });
-      }
-    }
 
     if (user) {
       // User already exists, update with new profile data
@@ -535,6 +480,8 @@ router.post('/finalize-account', async (req, res) => {
           ...(providerExternalId && { externalId: providerExternalId }),
           // Keep the same particleUserId (don't change it - it's tied to the wallet address)
           particleUserId: user.particleUserId, // Don't update particleUserId - it's tied to wallet
+          // Update email if provided, otherwise keep existing
+          ...(normalizedEmail !== undefined && { email: normalizedEmail }),
           username,
           displayName,
           firstName: displayName.split(' ')[0] || '',
@@ -568,17 +515,17 @@ router.post('/finalize-account', async (req, res) => {
         });
       }
 
-      // Check if email matches admin email from environment
+      // Check if email matches admin email from environment (only if email is provided)
       const adminEmails = process.env.ADMIN_EMAIL ? process.env.ADMIN_EMAIL.split(',').map(e => e.trim()) : [];
-      const isAdmin = adminEmails.includes(email);
+      const isAdmin = normalizedEmail && adminEmails.includes(normalizedEmail);
 
       // Create the user account
       user = await prisma.user.create({
         data: {
           // Only set externalId if provided (social auth users), leave null for email/OTP users
           ...(providerExternalId && { externalId: providerExternalId }),
-          particleUserId: particleUserId, // Particle Network UUID (required)
-          email,
+          particleUserId: particleUserId, // Particle Network UUID (required) - unique per account
+          email: normalizedEmail, // Store email if provided, undefined if not (allows Twitter, etc.)
           username,
           displayName,
           firstName: displayName.split(' ')[0] || '', // Extract first name from display name
