@@ -153,14 +153,22 @@ router.put('/profile', authenticateToken, async (req, res) => {
 // Update user profile with file upload (avatar)
 router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxCount: 1 }]), async (req, res) => {
   try {
-    const { displayName, bio, avatarData, avatarType, avatarName } = req.body;
+    const { displayName, bio, avatarUrl, avatarData, avatarType, avatarName } = req.body;
 
-    // Handle avatar data - store directly in database
-    let avatarUrl = null;
+    // Handle avatar - prefer Cloudflare R2 URL over base64
+    let finalAvatarUrl = null;
+    let finalAvatarData = null;
+    let finalAvatarType = null;
     
-    if (avatarData) {
-      // Store avatar data directly in database
-      console.log('Storing avatar data in database');
+    if (avatarUrl) {
+      // New: Cloudflare R2 URL (preferred)
+      console.log('Using Cloudflare R2 URL for avatar');
+      finalAvatarUrl = avatarUrl;
+      // Clear base64 data when using R2 URL
+      finalAvatarData = null;
+    } else if (avatarData) {
+      // Legacy: Base64 data (backward compatibility)
+      console.log('Storing avatar data in database (legacy mode)');
       
       // Check image size (base64 is ~33% larger than original)
       const base64Size = avatarData.length;
@@ -188,6 +196,11 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
           message: 'Only JPEG, JPG, and PNG images are allowed.'
         });
       }
+      
+      finalAvatarData = avatarData;
+      finalAvatarType = avatarType;
+      // Clear Google avatar when user uploads custom image
+      finalAvatarUrl = null;
     }
 
     const updatedUser = await prisma.user.update({
@@ -195,11 +208,9 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
       data: {
         ...(displayName && { displayName }),
         ...(bio && { bio }),
-        ...(avatarData && { 
-          avatarData, // Store base64 data directly
-          avatarUrl: null // Clear Google avatar when user uploads custom image
-        }),
-        ...(avatarType && { avatarType }),
+        ...(finalAvatarUrl !== null && { avatarUrl: finalAvatarUrl }),
+        ...(finalAvatarData !== null && { avatarData: finalAvatarData }),
+        ...(finalAvatarType && { avatarType: finalAvatarType }),
       },
       select: {
         id: true,

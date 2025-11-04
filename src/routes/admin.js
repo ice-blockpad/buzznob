@@ -677,25 +677,31 @@ router.post('/articles', authenticateToken, debugMiddleware, upload.fields([{ na
     const parsedReadTimeEstimate = parseInt(readTimeEstimate) || 5;
     const parsedIsFeatured = isFeatured === 'true' || isFeatured === true;
 
-    // Handle image data - store directly in database
-    let imageData = null;
-    let imageType = null;
-    let imageUrl = null;
+    // Handle image - prefer Cloudflare R2 URL over base64
+    let finalImageUrl = null;
+    let finalImageData = null;
+    let finalImageType = null;
     
-    if (req.body.imageData) {
-      // Store image data directly in database
-      console.log('Storing image data in database');
-      imageData = req.body.imageData;
-      imageType = req.body.imageType || 'image/jpeg';
+    if (req.body.imageUrl) {
+      // New: Cloudflare R2 URL (preferred)
+      console.log('Using Cloudflare R2 URL for article image');
+      finalImageUrl = req.body.imageUrl;
+      // Clear base64 data when using R2 URL
+      finalImageData = null;
+    } else if (req.body.imageData) {
+      // Legacy: Base64 data (backward compatibility)
+      console.log('Storing image data in database (legacy mode)');
+      finalImageData = req.body.imageData;
+      finalImageType = req.body.imageType || 'image/jpeg';
       
       // Check image size (base64 is ~33% larger than original)
-      const base64Size = imageData.length;
+      const base64Size = finalImageData.length;
       const estimatedOriginalSize = (base64Size * 3) / 4; // Approximate original size
       const maxSize = 200 * 1024; // 200KB
       
       console.log('Image data length:', base64Size);
       console.log('Estimated original size:', Math.round(estimatedOriginalSize / 1024) + 'KB');
-      console.log('Image type:', imageType);
+      console.log('Image type:', finalImageType);
       
       if (estimatedOriginalSize > maxSize) {
         return res.status(400).json({
@@ -704,10 +710,16 @@ router.post('/articles', authenticateToken, debugMiddleware, upload.fields([{ na
           message: `Image size is ${Math.round(estimatedOriginalSize / 1024)}KB. Maximum allowed size is 200KB.`
         });
       }
-    } else if (req.body.imageUrl) {
-      // Fallback for URL-based images
-      imageUrl = req.body.imageUrl;
-      console.log('Using image URL:', imageUrl);
+
+      // Check image format (validate MIME type) - allow WebP for articles
+      const allowedTypes = /jpeg|jpg|png|webp/;
+      if (finalImageType && !allowedTypes.test(finalImageType)) {
+        return res.status(400).json({
+          success: false,
+          error: 'INVALID_IMAGE_FORMAT',
+          message: 'Only JPEG, JPG, PNG, and WebP images are allowed for articles.'
+        });
+      }
     } else {
       console.log('No image provided');
     }
@@ -722,7 +734,7 @@ router.post('/articles', authenticateToken, debugMiddleware, upload.fields([{ na
     }
 
     // Validate that image is provided
-    if (!imageData && !imageUrl) {
+    if (!finalImageUrl && !finalImageData) {
       return res.status(400).json({
         success: false,
         error: 'IMAGE_REQUIRED',
@@ -745,9 +757,9 @@ router.post('/articles', authenticateToken, debugMiddleware, upload.fields([{ na
         pointsValue: parsedPointsValue,
         readTimeEstimate: parsedReadTimeEstimate,
         isFeatured: parsedIsFeatured,
-        imageUrl: imageUrl || null,
-        imageData: imageData || null,
-        imageType: imageType || null,
+        imageUrl: finalImageUrl || null,
+        imageData: finalImageData || null,
+        imageType: finalImageType || null,
         status: articleStatus,
         authorId: userId,
         publishedAt: publishedAt

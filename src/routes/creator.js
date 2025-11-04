@@ -44,17 +44,25 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
     const parsedReadTimeEstimate = parseInt(readTimeEstimate) || 5;
     const parsedIsFeatured = isFeatured === 'true' || isFeatured === true;
 
-    // Handle image data
-    let imageData = null;
-    let imageType = null;
-    let imageUrl = null;
+    // Handle image - prefer Cloudflare R2 URL over base64
+    let finalImageUrl = null;
+    let finalImageData = null;
+    let finalImageType = null;
     
-    if (req.body.imageData) {
-      imageData = req.body.imageData;
-      imageType = req.body.imageType || 'image/jpeg';
+    if (req.body.imageUrl) {
+      // New: Cloudflare R2 URL (preferred)
+      console.log('Using Cloudflare R2 URL for article image');
+      finalImageUrl = req.body.imageUrl;
+      // Clear base64 data when using R2 URL
+      finalImageData = null;
+    } else if (req.body.imageData) {
+      // Legacy: Base64 data (backward compatibility)
+      console.log('Storing image data in database (legacy mode)');
+      finalImageData = req.body.imageData;
+      finalImageType = req.body.imageType || 'image/jpeg';
       
       // Check image size
-      const base64Size = imageData.length;
+      const base64Size = finalImageData.length;
       const estimatedSizeKB = Math.round((base64Size * 0.75) / 1024);
       
       if (estimatedSizeKB > 200) {
@@ -62,6 +70,16 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
           success: false,
           error: 'IMAGE_TOO_LARGE',
           message: `Image size is ${estimatedSizeKB}KB. Maximum allowed size is 200KB.`
+        });
+      }
+
+      // Check image format (validate MIME type) - allow WebP for articles
+      const allowedTypes = /jpeg|jpg|png|webp/;
+      if (finalImageType && !allowedTypes.test(finalImageType)) {
+        return res.status(400).json({
+          success: false,
+          error: 'INVALID_IMAGE_FORMAT',
+          message: 'Only JPEG, JPG, PNG, and WebP images are allowed for articles.'
         });
       }
     }
@@ -75,7 +93,7 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
       });
     }
 
-    if (!imageData) {
+    if (!finalImageUrl && !finalImageData) {
       return res.status(400).json({
         success: false,
         error: 'IMAGE_REQUIRED',
@@ -94,9 +112,9 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
         pointsValue: parsedPointsValue,
         readTimeEstimate: parsedReadTimeEstimate,
         isFeatured: parsedIsFeatured,
-        imageUrl: imageUrl || null,
-        imageData: imageData || null,
-        imageType: imageType || null,
+        imageUrl: finalImageUrl || null,
+        imageData: finalImageData || null,
+        imageType: finalImageType || null,
         status: 'pending',
         authorId: userId
       }

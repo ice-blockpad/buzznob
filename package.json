@@ -28,6 +28,8 @@
     "@solana/spl-token": "^0.3.9",
     "@solana/web3.js": "^1.87.6",
     "aws-sdk": "^2.1501.0",
+    "@aws-sdk/client-s3": "^3.490.0",
+    "@aws-sdk/s3-request-presigner": "^3.490.0",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
