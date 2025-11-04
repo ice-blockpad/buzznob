@@ -133,7 +133,7 @@ async function main() {
     {
       name: 'Early Adopter',
       description: 'Join BuzzNob in the first month',
-      pointsRequired: 5000,
+      pointsRequired: 1000,
       category: 'special'
     },
     {

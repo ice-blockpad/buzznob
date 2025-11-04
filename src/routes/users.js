@@ -463,9 +463,9 @@ router.post('/upgrade-to-creator', authenticateToken, async (req, res) => {
       data: {
         role: 'creator',
         isVerified: true,
-        // Award 5,000 BUZZ tokens as welcome bonus
+        // Award 10,000 BUZZ tokens as welcome bonus
         points: {
-          increment: 5000
+          increment: 10000
         }
       },
       select: {
