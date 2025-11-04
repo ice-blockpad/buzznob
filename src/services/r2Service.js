@@ -3,9 +3,11 @@ const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const crypto = require('crypto');
 
 // Initialize R2 client (Cloudflare R2 is S3-compatible)
+// Note: R2 requires forcePathStyle for presigned URLs to work correctly
 const r2Client = new S3Client({
   region: process.env.R2_REGION || 'auto',
   endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  forcePathStyle: true, // Required for R2 presigned URLs
   credentials: {
     accessKeyId: process.env.R2_ACCESS_KEY_ID,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
