@@ -34,7 +34,15 @@ const MAX_FILE_SIZES = {
 function generateObjectKey(type, id, mimeType) {
   const timestamp = Date.now();
   const randomString = crypto.randomBytes(6).toString('hex');
-  const extension = mimeType.split('/')[1] || 'jpg';
+  
+  // Map MIME type to file extension
+  const mimeToExt = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+  };
+  const extension = mimeToExt[mimeType.toLowerCase()] || 'jpg';
   
   if (type === 'profile') {
     return `users/${id}/profile/${timestamp}_${randomString}.${extension}`;
@@ -75,20 +83,27 @@ async function generatePresignedUrl(type, id, mimeType, fileSize) {
   const key = generateObjectKey(type, id, mimeType);
 
   // Generate presigned URL (expires in 5 minutes)
+  // CRITICAL: Do NOT set ContentType in PutObjectCommand
+  // If ContentType is set here, it's included in the signature and must match EXACTLY
+  // React Native fetch may add/modify headers, causing signature mismatch → AccessDenied
+  // We validate MIME type on backend before generating URL, but don't enforce in signature
   const command = new PutObjectCommand({
     Bucket: R2_BUCKET,
     Key: key,
-    ContentType: mimeType,
-    ContentLength: fileSize,
-    // Optional: Add metadata
-    Metadata: {
-      uploadedAt: new Date().toISOString(),
-      uploadType: type,
-    },
+    // Explicitly don't set ContentType - client will set it in request headers
+    // This allows React Native to work without signature mismatches
   });
 
   const expiresIn = 5 * 60; // 5 minutes
   const uploadUrl = await getSignedUrl(r2Client, command, { expiresIn });
+  
+  console.log('Generated presigned URL:', {
+    key,
+    mimeType,
+    fileSize,
+    bucket: R2_BUCKET,
+    expiresIn: `${expiresIn}s`,
+  });
 
   // Generate public URL (using custom domain)
   const publicUrl = `${R2_PUBLIC_BASE_URL}/${key}`;

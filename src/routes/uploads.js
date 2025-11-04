@@ -50,8 +50,15 @@ router.post('/sign', authenticateToken, async (req, res) => {
     // Use user ID for profile, or provided targetId for articles
     const id = type === 'profile' ? req.user.id : (targetId || req.user.id);
 
+    console.log('Generating presigned URL:', { type, id, mimeType, fileSize });
+
     // Generate presigned URL
     const result = await generatePresignedUrl(type, id, mimeType, fileSize);
+    
+    console.log('Presigned URL generated successfully:', {
+      key: result.key,
+      expiresAt: new Date(result.expiresAt).toISOString(),
+    });
 
     res.json({
       success: true,
