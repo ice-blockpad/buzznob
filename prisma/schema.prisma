@@ -9,11 +9,11 @@ datasource db {
 
 model User {
   id               String           @id @default(cuid()) @db.VarChar
-  email            String?          // Not unique - allow multiple accounts with same email (different Particle accounts)
+  email            String?          @unique
   walletAddress    String?          @unique @map("wallet_address")
   username         String           @unique
   externalId       String?          @unique @map("external_id") // Provider-specific ID (Google ID, Discord ID, Twitter ID, etc.)
-  particleUserId   String?          @unique @map("particle_user_id") // Particle Network UUID - Unique per Particle account
+  particleUserId   String?          @map("particle_user_id") // Particle Network UUID
   displayName      String?          @map("display_name")
   firstName        String?          @map("first_name")
   lastName         String?          @map("last_name")

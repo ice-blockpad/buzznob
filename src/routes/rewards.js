@@ -11,79 +11,80 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const now = new Date();
-    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
 
-    // Check if user claimed within the last 24 hours
-    const recentClaim = await prisma.dailyReward.findFirst({
-      where: {
-        userId,
-        claimedAt: {
-          gte: twentyFourHoursAgo
-        }
-      },
-      orderBy: {
-        claimedAt: 'desc'
-      }
+    // UTC helpers
+    const toUtcYmd = (d) => ({ y: d.getUTCFullYear(), m: d.getUTCMonth(), d: d.getUTCDate() });
+    const startOfUtcDay = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+    const nextUtcMidnight = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0, 0));
+    const utcDayDiff = (a, b) => {
+      const sa = startOfUtcDay(a).getTime();
+      const sb = startOfUtcDay(b).getTime();
+      return Math.round((sa - sb) / (24 * 60 * 60 * 1000)); // positive if a is after b
+    };
+
+    // Find last claim to evaluate same-day cooldown and streak continuity
+    const lastClaim = await prisma.dailyReward.findFirst({
+      where: { userId },
+      orderBy: { claimedAt: 'desc' }
     });
 
-    if (recentClaim) {
-      const timeUntilNextClaim = new Date(recentClaim.claimedAt.getTime() + (24 * 60 * 60 * 1000));
-      const hoursRemaining = Math.ceil((timeUntilNextClaim - now) / (1000 * 60 * 60));
-      
+    // Cooldown: one claim per UTC day – if already claimed today UTC, block until next UTC midnight
+    if (lastClaim && utcDayDiff(now, lastClaim.claimedAt) === 0) {
+      const nextAvail = nextUtcMidnight(now);
+      const hoursRemaining = Math.ceil((nextAvail - now) / (1000 * 60 * 60));
       return res.status(400).json({
         success: false,
         error: 'DAILY_REWARD_COOLDOWN',
         message: `Daily reward is on cooldown. Try again in ${hoursRemaining} hours.`,
-        data: {
-          nextAvailableAt: timeUntilNextClaim,
-          hoursRemaining
-        }
+        data: { nextAvailableAt: nextAvail, hoursRemaining }
       });
     }
 
-    // Calculate streak-based reward
+    // Load user
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { streakCount: true, points: true }
     });
-
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'USER_NOT_FOUND',
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, error: 'USER_NOT_FOUND', message: 'User not found' });
     }
 
-    // Base reward is 10 points, bonus for streaks
-    let rewardPoints = 10;
-    let streakBonus = 0;
-
-    if (user.streakCount >= 7) {
-      streakBonus = 20; // 20 bonus points for 7+ day streak
-    } else if (user.streakCount >= 3) {
-      streakBonus = 10; // 10 bonus points for 3+ day streak
+    // Determine streak based on UTC day continuity
+    let consecutiveDays = user.streakCount || 0;
+    if (lastClaim) {
+      const diffDays = utcDayDiff(now, lastClaim.claimedAt); // 1 means yesterday
+      if (diffDays === 1) {
+        consecutiveDays = consecutiveDays + 1;
+      } else if (diffDays >= 2) {
+        consecutiveDays = -1; // missed at least one UTC day -> next reward = 5
+      } else {
+        // diffDays == 0 handled by cooldown above; negative shouldn't occur due to order
+        consecutiveDays = consecutiveDays; 
+      }
+    } else {
+      // First ever claim
+      consecutiveDays = 0;
     }
 
-    const totalReward = rewardPoints + streakBonus;
+    // Reward formula: 10 + 5 * consecutiveDays, min 50; if consecutiveDays = -1 => 5
+    const computedBase = Math.max(5, 10 + (consecutiveDays * 5));
+    const rewardPoints = Math.min(computedBase, 50);
 
-    // Create daily reward record
-    const dailyReward = await prisma.dailyReward.create({
+    // Persist daily reward and update user points and streakCount (never store negative; store 0 for next day after 5)
+    await prisma.dailyReward.create({
       data: {
         userId,
-        pointsEarned: totalReward,
-        streakCount: user.streakCount,
-        streakBonus
+        pointsEarned: rewardPoints,
+        streakCount: Math.max(0, consecutiveDays),
+        streakBonus: 0
       }
     });
 
-    // Update user points
     await prisma.user.update({
       where: { id: userId },
       data: {
-        points: {
-          increment: totalReward
-        }
+        points: { increment: rewardPoints },
+        streakCount: Math.max(0, consecutiveDays)
       }
     });
 
@@ -91,11 +92,11 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
       success: true,
       message: 'Daily reward claimed successfully',
       data: {
-        pointsEarned: totalReward,
+        pointsEarned: rewardPoints,
         baseReward: rewardPoints,
-        streakBonus,
-        streakCount: user.streakCount,
-        totalPoints: user.points + totalReward
+        streakBonus: 0,
+        streakCount: Math.max(0, consecutiveDays),
+        totalPoints: user.points + rewardPoints
       }
     });
 
@@ -140,33 +141,53 @@ router.get('/daily/status', authenticateToken, async (req, res) => {
       }
 
       const data = result[0];
-      const baseReward = 20;
-    let streakBonus = 0;
+      // Compute next reward based on UTC day continuity
+      const startOfUtcDay = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+      const nextUtcMidnight = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0, 0));
+      const utcDayDiff = (a, b) => {
+        const sa = startOfUtcDay(a).getTime();
+        const sb = startOfUtcDay(b).getTime();
+        return Math.round((sa - sb) / (24 * 60 * 60 * 1000));
+      };
 
-      if (data.streakCount >= 7) {
-      streakBonus = 20;
-      } else if (data.streakCount >= 3) {
-      streakBonus = 10;
-    }
-
-      const totalReward = baseReward + streakBonus;
+      const lastClaimedAt = data.lastClaimedAt ? new Date(data.lastClaimedAt) : null;
+      let nextConsecutive = parseInt(data.streakCount) || 0;
+      if (lastClaimedAt) {
+        const diffDays = utcDayDiff(now, lastClaimedAt);
+        if (diffDays === 0) {
+          // already claimed today; preview for tomorrow as continued streak
+          nextConsecutive = nextConsecutive + 1;
+        } else if (diffDays === 1) {
+          nextConsecutive = nextConsecutive + 1;
+        } else if (diffDays >= 2) {
+          nextConsecutive = -1; // would reset to 5 on next claim
+        }
+      } else {
+        nextConsecutive = 0;
+      }
+      const computedBase = Math.max(5, 10 + (nextConsecutive * 5));
+      const baseReward = Math.min(computedBase, 50);
+      const totalReward = baseReward; // no separate streak bonus in new model
       
     let isOnCooldown = false;
     let nextAvailableAt = null;
     let hoursRemaining = 0;
 
       if (data.lastClaimedAt) {
-      isOnCooldown = true;
-        nextAvailableAt = new Date(new Date(data.lastClaimedAt).getTime() + (24 * 60 * 60 * 1000));
-      hoursRemaining = Math.ceil((nextAvailableAt - now) / (1000 * 60 * 60));
-    }
+        const last = new Date(data.lastClaimedAt);
+        if (utcDayDiff(now, last) === 0) {
+          isOnCooldown = true;
+          nextAvailableAt = nextUtcMidnight(now);
+          hoursRemaining = Math.ceil((nextAvailableAt - now) / (1000 * 60 * 60));
+        }
+      }
 
       return {
         isOnCooldown,
         nextAvailableAt,
         hoursRemaining,
         baseReward,
-        streakBonus,
+        streakBonus: 0,
         totalReward,
         currentStreak: parseInt(data.streakCount) || 0
       };
