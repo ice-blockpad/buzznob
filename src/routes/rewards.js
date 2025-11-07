@@ -66,9 +66,13 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
       consecutiveDays = 0;
     }
 
-    // Reward formula: 10 + 5 * consecutiveDays, min 50; if consecutiveDays = -1 => 5
-    const computedBase = Math.max(5, 10 + (consecutiveDays * 5));
-    const rewardPoints = Math.min(computedBase, 50);
+    // Reward formula: 5 + 5 * consecutiveDays, max 50; if consecutiveDays = -1 => 5
+    // Day 1 (consecutiveDays = 0): 5 + (0 * 5) = 5
+    // Day 2 (consecutiveDays = 1): 5 + (1 * 5) = 10
+    // Day 3 (consecutiveDays = 2): 5 + (2 * 5) = 15
+    // ... up to Day 10 (consecutiveDays = 9): 5 + (9 * 5) = 50
+    const computedBase = consecutiveDays === -1 ? 5 : Math.min(5 + (consecutiveDays * 5), 50);
+    const rewardPoints = Math.max(5, computedBase);
 
     // Persist daily reward and update user points and streakCount (never store negative; store 0 for next day after 5)
     await prisma.dailyReward.create({
@@ -165,8 +169,12 @@ router.get('/daily/status', authenticateToken, async (req, res) => {
       } else {
         nextConsecutive = 0;
       }
-      const computedBase = Math.max(5, 10 + (nextConsecutive * 5));
-      const baseReward = Math.min(computedBase, 50);
+      // Reward formula: 5 + 5 * consecutiveDays, max 50; if nextConsecutive = -1 => 5
+      // Day 1 (nextConsecutive = 0): 5 + (0 * 5) = 5
+      // Day 2 (nextConsecutive = 1): 5 + (1 * 5) = 10
+      // ... up to Day 10 (nextConsecutive = 9): 5 + (9 * 5) = 50
+      const computedBase = nextConsecutive === -1 ? 5 : Math.min(5 + (nextConsecutive * 5), 50);
+      const baseReward = Math.max(5, computedBase);
       const totalReward = baseReward; // no separate streak bonus in new model
       
     let isOnCooldown = false;

@@ -445,8 +445,49 @@ router.post('/claim', authenticateToken, async (req, res) => {
     const finalMinedAmount = parseFloat(completedSession.totalMined.toFixed(4));
     const pointsToAdd = finalMinedAmount; // Both get the same rounded amount
 
-    // Mark session as claimed and claim rewards
-    await prisma.$transaction(async (tx) => {
+    const claimTime = new Date(); // Use claim time as start time for next session
+    const duration = 21600; // 6 hours in seconds
+    const endsAt = new Date(claimTime.getTime() + duration * 1000);
+
+    // Calculate initial mining rate based on active referrals (same logic as start endpoint)
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { referrals: true }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    let activeReferrals = 0;
+    if (user.referrals && user.referrals.length > 0) {
+      // Check which referred users are currently mining
+      const activeReferredUsers = await prisma.user.findMany({
+        where: {
+          referredBy: userId,
+          miningSessions: {
+            some: {
+              isActive: true,
+              startedAt: {
+                gte: new Date(Date.now() - 6 * 60 * 60 * 1000) // 6 hours
+              }
+            }
+          }
+        }
+      });
+      
+      activeReferrals = activeReferredUsers.length;
+    }
+
+    const baseReward = 20; // 20 tokens per 6-hour session (same as start endpoint)
+    const referralBonus = activeReferrals * 10; // 10% per active referral
+    const initialRate = baseReward + (baseReward * referralBonus / 100);
+
+    // Mark session as claimed, claim rewards, and start next session atomically
+    const result = await prisma.$transaction(async (tx) => {
       // Mark session as claimed
       await tx.miningSession.update({
         where: { id: completedSession.id },
@@ -477,16 +518,39 @@ router.post('/claim', authenticateToken, async (req, res) => {
           }
         }
       });
+
+      // Automatically start next mining session with claim time as start time
+      const nextSession = await tx.miningSession.create({
+        data: {
+          userId,
+          baseReward,
+          currentRate: initialRate,
+          totalMined: 0,
+          lastUpdate: claimTime,
+          startedAt: claimTime, // Use claim time as start time
+          endsAt: endsAt,
+          duration: duration,
+          isActive: true
+        }
+      });
+
+      return nextSession;
     });
 
-    // Update mining rates for all users who referred this user (since they're no longer mining)
+    // Update mining rates for all users who referred this user
     await updateReferrerMiningRates(userId);
 
     res.json({
       success: true,
       data: {
         amount: finalMinedAmount,
-        message: `Successfully claimed ${finalMinedAmount} $BUZZ tokens!`
+        message: `Successfully claimed ${finalMinedAmount} $BUZZ tokens!`,
+        nextSession: {
+          sessionId: result.id,
+          startedAt: result.startedAt,
+          endsAt: result.endsAt,
+          nextClaimTime: result.endsAt
+        }
       }
     });
   } catch (error) {
