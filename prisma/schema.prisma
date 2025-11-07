@@ -37,6 +37,7 @@ model User {
   avatarData       String?          @map("avatar_data")
   avatarType       String?          @map("avatar_type")
   miningBalance    Float            @default(0) @map("mining_balance")
+  pushToken        String?          @map("push_token")
   authoredArticles Article[]        @relation("ArticleAuthor")
   reviewedArticles Article[]        @relation("ArticleReviewer")
   dailyRewards     DailyReward[]

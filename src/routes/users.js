@@ -899,4 +899,39 @@ router.get('/:userId/articles', async (req, res) => {
   }
 });
 
+// Register push notification token
+router.post('/push-token', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { pushToken } = req.body;
+
+    if (!pushToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'PUSH_TOKEN_REQUIRED',
+        message: 'Push token is required'
+      });
+    }
+
+    // Update user's push token
+    await prisma.user.update({
+      where: { id: userId },
+      data: { pushToken }
+    });
+
+    res.json({
+      success: true,
+      message: 'Push token registered successfully'
+    });
+
+  } catch (error) {
+    console.error('Register push token error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'PUSH_TOKEN_REGISTRATION_ERROR',
+      message: 'Failed to register push token'
+    });
+  }
+});
+
 module.exports = router;
