@@ -50,36 +50,53 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
     }
 
     // Determine streak based on UTC day continuity
+    // Streak represents current day number (1 = first day, 2 = second day, etc.)
     let consecutiveDays = user.streakCount || 0;
+    console.log(`[Daily Claim] User ${userId}: Current streakCount from DB: ${user.streakCount}`);
+    console.log(`[Daily Claim] User ${userId}: Last claim exists: ${!!lastClaim}`);
+    
     if (lastClaim) {
       const diffDays = utcDayDiff(now, lastClaim.claimedAt); // 1 means yesterday
+      console.log(`[Daily Claim] User ${userId}: Days since last claim: ${diffDays}`);
+      console.log(`[Daily Claim] User ${userId}: Last claim was at: ${lastClaim.claimedAt}`);
+      console.log(`[Daily Claim] User ${userId}: Current time: ${now}`);
+      
       if (diffDays === 1) {
+        // Consecutive day - increment streak
         consecutiveDays = consecutiveDays + 1;
+        console.log(`[Daily Claim] User ${userId}: Incrementing streak: ${consecutiveDays - 1} -> ${consecutiveDays}`);
       } else if (diffDays >= 2) {
-        consecutiveDays = -1; // missed at least one UTC day -> next reward = 5
+        // Streak broken - reset to 1 (starting a new streak)
+        consecutiveDays = 1;
+        console.log(`[Daily Claim] User ${userId}: Streak broken (missed ${diffDays - 1} days), resetting to 1 (new streak)`);
       } else {
         // diffDays == 0 handled by cooldown above; negative shouldn't occur due to order
         consecutiveDays = consecutiveDays; 
+        console.log(`[Daily Claim] User ${userId}: Same day or invalid diff (${diffDays}), keeping streak: ${consecutiveDays}`);
       }
     } else {
-      // First ever claim
-      consecutiveDays = 0;
+      // First ever claim - start at day 1
+      consecutiveDays = 1;
+      console.log(`[Daily Claim] User ${userId}: First ever claim, setting streak to 1`);
     }
+    
+    console.log(`[Daily Claim] User ${userId}: Final consecutiveDays: ${consecutiveDays}`);
 
-    // Reward formula: 5 + 5 * consecutiveDays, max 50; if consecutiveDays = -1 => 5
-    // Day 1 (consecutiveDays = 0): 5 + (0 * 5) = 5
-    // Day 2 (consecutiveDays = 1): 5 + (1 * 5) = 10
-    // Day 3 (consecutiveDays = 2): 5 + (2 * 5) = 15
-    // ... up to Day 10 (consecutiveDays = 9): 5 + (9 * 5) = 50
-    const computedBase = consecutiveDays === -1 ? 5 : Math.min(5 + (consecutiveDays * 5), 50);
+    // Reward formula: 5 + 5 * (consecutiveDays - 1), max 50
+    // Day 1 (consecutiveDays = 1): 5 + (0 * 5) = 5
+    // Day 2 (consecutiveDays = 2): 5 + (1 * 5) = 10
+    // Day 3 (consecutiveDays = 3): 5 + (2 * 5) = 15
+    // ... up to Day 10 (consecutiveDays = 10): 5 + (9 * 5) = 50
+    const computedBase = Math.min(5 + ((consecutiveDays - 1) * 5), 50);
     const rewardPoints = Math.max(5, computedBase);
 
-    // Persist daily reward and update user points and streakCount (never store negative; store 0 for next day after 5)
+    // Persist daily reward and update user points and streakCount
+    // streakCount now represents current day number (1, 2, 3, etc.)
     await prisma.dailyReward.create({
       data: {
         userId,
         pointsEarned: rewardPoints,
-        streakCount: Math.max(0, consecutiveDays),
+        streakCount: consecutiveDays, // Already >= 1, no need for Math.max(0, ...)
         streakBonus: 0
       }
     });
@@ -88,7 +105,7 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
       where: { id: userId },
       data: {
         points: { increment: rewardPoints },
-        streakCount: Math.max(0, consecutiveDays)
+        streakCount: consecutiveDays // Already >= 1, no need for Math.max(0, ...)
       }
     });
 
@@ -99,7 +116,7 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
         pointsEarned: rewardPoints,
         baseReward: rewardPoints,
         streakBonus: 0,
-        streakCount: Math.max(0, consecutiveDays),
+        streakCount: consecutiveDays,
         totalPoints: user.points + rewardPoints
       }
     });
@@ -162,18 +179,21 @@ router.get('/daily/status', authenticateToken, async (req, res) => {
           // already claimed today; preview for tomorrow as continued streak
           nextConsecutive = nextConsecutive + 1;
         } else if (diffDays === 1) {
+          // Will claim tomorrow - increment streak
           nextConsecutive = nextConsecutive + 1;
         } else if (diffDays >= 2) {
-          nextConsecutive = -1; // would reset to 5 on next claim
+          // Streak broken - will reset to 1 on next claim
+          nextConsecutive = 1;
         }
       } else {
-        nextConsecutive = 0;
+        // No previous claim - next claim will be day 1
+        nextConsecutive = 1;
       }
-      // Reward formula: 5 + 5 * consecutiveDays, max 50; if nextConsecutive = -1 => 5
-      // Day 1 (nextConsecutive = 0): 5 + (0 * 5) = 5
-      // Day 2 (nextConsecutive = 1): 5 + (1 * 5) = 10
-      // ... up to Day 10 (nextConsecutive = 9): 5 + (9 * 5) = 50
-      const computedBase = nextConsecutive === -1 ? 5 : Math.min(5 + (nextConsecutive * 5), 50);
+      // Reward formula: 5 + 5 * (nextConsecutive - 1), max 50
+      // Day 1 (nextConsecutive = 1): 5 + (0 * 5) = 5
+      // Day 2 (nextConsecutive = 2): 5 + (1 * 5) = 10
+      // ... up to Day 10 (nextConsecutive = 10): 5 + (9 * 5) = 50
+      const computedBase = Math.min(5 + ((nextConsecutive - 1) * 5), 50);
       const baseReward = Math.max(5, computedBase);
       const totalReward = baseReward; // no separate streak bonus in new model
       
