@@ -21,11 +21,14 @@ function generateUniqueReferralCode() {
 // GET /auth/user-exists?externalId=...&email=...&particleUserId=...
 router.get('/user-exists', async (req, res) => {
   try {
+    console.log('🔍 [user-exists] Endpoint called with query:', req.query);
     const { particleUserId } = req.query;
     if (!particleUserId) {
+      console.log('❌ [user-exists] Missing particleUserId');
       return res.status(400).json({ success: false, message: 'particleUserId required' });
     }
 
+    console.log('🔍 [user-exists] Checking database for particleUserId:', particleUserId);
     const user = await prisma.user.findFirst({
       where: {
         particleUserId: particleUserId
@@ -33,10 +36,109 @@ router.get('/user-exists', async (req, res) => {
       select: { id: true },
     });
 
-    return res.json({ success: true, exists: !!user });
+    const exists = !!user;
+    console.log('📊 [user-exists] User exists:', exists, user ? `(userId: ${user.id})` : '(not found)');
+    return res.json({ success: true, exists: exists });
   } catch (error) {
-    console.error('User exists check error:', error);
+    console.error('❌ [user-exists] Error:', error);
     return res.status(500).json({ success: false, message: 'Failed to check user existence' });
+  }
+});
+
+// Login existing user (only generates tokens, does NOT create/update account)
+// POST /auth/login
+router.post('/login', async (req, res) => {
+  try {
+    const { particleUserId } = req.body;
+    
+    if (!particleUserId) {
+      return res.status(400).json({
+        success: false,
+        error: 'PARTICLE_USER_ID_REQUIRED',
+        message: 'Particle User ID is required'
+      });
+    }
+
+    // Find existing user by particleUserId
+    const user = await prisma.user.findFirst({
+      where: {
+        particleUserId: particleUserId
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'User not found. Please complete profile first.'
+      });
+    }
+
+    // Update last login
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() }
+    });
+
+    // Generate tokens
+    const accessTokenJWT = generateToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+
+    // Store refresh token
+    await prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: refreshToken,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      }
+    });
+
+    // Create user session in database
+    await prisma.userSession.create({
+      data: {
+        userId: user.id,
+        accessToken: accessTokenJWT,
+        refreshToken: refreshToken,
+        deviceInfo: req.headers['user-agent'] || 'Mobile App',
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          displayName: user.displayName,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          bio: user.bio,
+          avatarUrl: user.avatarUrl,
+          points: user.points,
+          streakCount: user.streakCount,
+          referralCode: user.referralCode,
+          role: user.role,
+          isActive: user.isActive,
+          isVerified: user.isVerified,
+          kycStatus: user.kycStatus
+        },
+        accessToken: accessTokenJWT,
+        refreshToken
+      }
+    });
+
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'LOGIN_ERROR',
+      message: 'Login failed'
+    });
   }
 });
 
@@ -148,6 +250,8 @@ router.post('/finalize-account', async (req, res) => {
 
     // Check if user already exists by particleUserId (primary check - this is the correct check)
     // particleUserId is unique per Particle Network account, which is what we want
+    // NOTE: finalizeAccount should ONLY be called for NEW users from ProfileCompletionScreen
+    // Existing users should use the /auth/login endpoint instead
     let user = await prisma.user.findUnique({
       where: {
         particleUserId: particleUserId
@@ -155,24 +259,12 @@ router.post('/finalize-account', async (req, res) => {
     });
 
     if (user) {
-      // User already exists, update with new profile data
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          // Only update externalId if provided (social auth users), leave unchanged for email/OTP users
-          ...(providerExternalId && { externalId: providerExternalId }),
-          // Keep the same particleUserId (don't change it - it's tied to the wallet address)
-          particleUserId: user.particleUserId, // Don't update particleUserId - it's tied to wallet
-          // Update email if provided, otherwise keep existing
-          ...(normalizedEmail !== undefined && { email: normalizedEmail }),
-          username,
-          displayName,
-          firstName: displayName.split(' ')[0] || '',
-          lastName: displayName.split(' ').slice(1).join(' ') || '',
-          bio: bio || '',
-          avatarUrl: avatarUrl || user.avatarUrl, // Preserve existing avatar if new one not provided
-          lastLogin: new Date(),
-        }
+      // User already exists - this should not happen if flow is correct
+      // Existing users should use /auth/login, not finalizeAccount
+      return res.status(400).json({
+        success: false,
+        error: 'USER_ALREADY_EXISTS',
+        message: 'User already exists. Please use login endpoint instead.'
       });
     } else {
       // Check if username contains only letters, numbers, and underscores
