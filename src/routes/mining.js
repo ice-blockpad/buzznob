@@ -66,7 +66,7 @@ async function updateMiningProgress(sessionId) {
         const minedSinceLastUpdate = (session.currentRate * elapsedHours) / 6;
         
         // Don't update lastUpdate beyond the session end time
-        const newLastUpdate = Math.min(now, sessionEndTime);
+        const newLastUpdate = new Date(Math.min(now.getTime(), sessionEndTime.getTime()));
         
         await tx.miningSession.update({
           where: { id: sessionId },
@@ -171,7 +171,7 @@ async function updateReferrerMiningRates(userId) {
         const minedSinceLastUpdate = (lockedSession.currentRate * elapsedHours) / 6;
 
         // Don't update lastUpdate beyond the session end time
-        const newLastUpdate = Math.min(now, sessionEndTime);
+        const newLastUpdate = new Date(Math.min(now.getTime(), sessionEndTime.getTime()));
 
         // Update the session
         await tx.miningSession.update({
@@ -714,7 +714,7 @@ router.post('/update-rate', authenticateToken, async (req, res) => {
     const minedSinceLastUpdate = (activeSession.currentRate * elapsedHours) / 6;
 
     // Don't update lastUpdate beyond the session end time
-    const newLastUpdate = Math.min(now, sessionEndTime);
+    const newLastUpdate = new Date(Math.min(now.getTime(), sessionEndTime.getTime()));
 
     // Update mining session with new rate and accumulated tokens
     const updatedSession = await prisma.miningSession.update({
