@@ -17,48 +17,13 @@ function generateUniqueReferralCode() {
   return result;
 }
 
-// Lightweight existence check used by mobile pre-profile flow
-// GET /auth/user-exists?externalId=...&email=...&particleUserId=...
-router.get('/user-exists', async (req, res) => {
-  try {
-    console.log('🔍 [user-exists] Endpoint called with query:', req.query);
-    const { particleUserId } = req.query;
-    if (!particleUserId) {
-      console.log('❌ [user-exists] Missing particleUserId');
-      return res.status(400).json({ success: false, message: 'particleUserId required' });
-    }
-
-    console.log('🔍 [user-exists] Checking database for particleUserId:', particleUserId);
-    // Use findUnique since particleUserId is @unique in schema
-    const user = await prisma.user.findUnique({
-      where: {
-        particleUserId: particleUserId
-      },
-      select: { id: true },
-    });
-
-    const exists = !!user;
-    console.log('📊 [user-exists] User exists:', exists, user ? `(userId: ${user.id})` : '(not found)');
-    return res.json({ success: true, exists: exists });
-  } catch (error) {
-    console.error('❌ [user-exists] Error:', error);
-    return res.status(500).json({ success: false, message: 'Failed to check user existence' });
-  }
-});
-
-// NEW: Dedicated endpoint to check if user exists by particleUserId
+// Dedicated endpoint to check if user exists by particleUserId
 // GET /auth/check-user-by-particle-id?particleUserId=...
 router.get('/check-user-by-particle-id', async (req, res) => {
   try {
-    console.log('═══════════════════════════════════════════════════════════');
-    console.log('🔍 [check-user-by-particle-id] Endpoint called');
-    console.log('📥 Request query:', JSON.stringify(req.query, null, 2));
-    console.log('📥 Request headers:', JSON.stringify(req.headers, null, 2));
-    
     const { particleUserId } = req.query;
     
     if (!particleUserId) {
-      console.log('❌ [check-user-by-particle-id] Missing particleUserId in query');
       return res.status(400).json({ 
         success: false, 
         error: 'MISSING_PARTICLE_USER_ID',
@@ -66,25 +31,6 @@ router.get('/check-user-by-particle-id', async (req, res) => {
       });
     }
 
-    console.log('🔍 [check-user-by-particle-id] Searching for particleUserId:', particleUserId);
-    console.log('🔍 [check-user-by-particle-id] particleUserId type:', typeof particleUserId);
-    console.log('🔍 [check-user-by-particle-id] particleUserId length:', particleUserId?.length);
-    
-    // First, let's check what users exist in the database (for debugging)
-    const allUsersWithParticleId = await prisma.user.findMany({
-      where: {
-        particleUserId: { not: null }
-      },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        particleUserId: true
-      },
-      take: 5 // Limit to 5 for debugging
-    });
-    console.log('📊 [check-user-by-particle-id] Sample users with particleUserId in DB:', JSON.stringify(allUsersWithParticleId, null, 2));
-    
     // Check database for user with this particleUserId
     // Use findUnique since particleUserId is @unique in schema
     const user = await prisma.user.findUnique({
@@ -101,20 +47,6 @@ router.get('/check-user-by-particle-id', async (req, res) => {
 
     const exists = !!user;
     
-    if (exists) {
-      console.log('✅ [check-user-by-particle-id] User FOUND:', {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        particleUserId: user.particleUserId
-      });
-    } else {
-      console.log('❌ [check-user-by-particle-id] User NOT FOUND for particleUserId:', particleUserId);
-    }
-    
-    console.log('📊 [check-user-by-particle-id] Result - exists:', exists);
-    console.log('═══════════════════════════════════════════════════════════');
-    
     return res.json({ 
       success: true, 
       exists: exists,
@@ -122,13 +54,11 @@ router.get('/check-user-by-particle-id', async (req, res) => {
       user: user || null
     });
   } catch (error) {
-    console.error('❌ [check-user-by-particle-id] Database error:', error);
-    console.error('❌ [check-user-by-particle-id] Error stack:', error.stack);
+    console.error('User existence check error:', error);
     return res.status(500).json({ 
       success: false, 
       error: 'DATABASE_ERROR',
-      message: 'Failed to check user existence',
-      details: error.message
+      message: 'Failed to check user existence'
     });
   }
 });
@@ -137,23 +67,15 @@ router.get('/check-user-by-particle-id', async (req, res) => {
 // POST /auth/login
 router.post('/login', async (req, res) => {
   try {
-    console.log('═══════════════════════════════════════════════════════════');
-    console.log('🔐 [login] Endpoint called');
-    console.log('📥 Request body:', JSON.stringify(req.body, null, 2));
-    console.log('📥 Request headers:', JSON.stringify(req.headers, null, 2));
-    
     const { particleUserId } = req.body;
     
     if (!particleUserId) {
-      console.log('❌ [login] Missing particleUserId in body');
       return res.status(400).json({
         success: false,
         error: 'PARTICLE_USER_ID_REQUIRED',
         message: 'Particle User ID is required'
       });
     }
-
-    console.log('🔍 [login] Searching for user with particleUserId:', particleUserId);
 
     // Find existing user by particleUserId
     // Use findUnique since particleUserId is @unique in schema
@@ -163,24 +85,13 @@ router.post('/login', async (req, res) => {
       }
     });
 
-    console.log('📊 [login] Database query result:', user ? {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      particleUserId: user.particleUserId
-    } : 'NOT FOUND');
-
     if (!user) {
-      console.log('❌ [login] User NOT FOUND for particleUserId:', particleUserId);
-      console.log('═══════════════════════════════════════════════════════════');
       return res.status(404).json({
         success: false,
         error: 'USER_NOT_FOUND',
         message: 'User not found. Please complete profile first.'
       });
     }
-
-    console.log('✅ [login] User FOUND, proceeding with login');
 
     // Update last login
     await prisma.user.update({
@@ -244,14 +155,11 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ [login] Login error:', error);
-    console.error('❌ [login] Error stack:', error.stack);
-    console.log('═══════════════════════════════════════════════════════════');
+    console.error('Login error:', error);
     res.status(500).json({
       success: false,
       error: 'LOGIN_ERROR',
-      message: 'Login failed',
-      details: error.message
+      message: 'Login failed'
     });
   }
 });
