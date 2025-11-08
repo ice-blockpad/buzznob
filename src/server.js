@@ -23,6 +23,7 @@ const { errorHandler } = require('./middleware/errorHandler');
 const { connectDB } = require('./config/database');
 const { autoSyncDatabase } = require('./scripts/autoSync');
 const notificationCron = require('./services/notificationCron');
+const miningCron = require('./services/miningCron');
 
 const app = express();
 const PORT = process.env.PORT || 8001;
@@ -207,6 +208,9 @@ const startServer = async () => {
     
     // Start notification cron jobs
     notificationCron.startAll();
+    
+    // Start mining cron jobs
+    miningCron.startAll();
     
     // Note: Seed data manually using: npm run db:seed
     // Or run once with: npm run db:reset-seed
