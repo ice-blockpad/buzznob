@@ -188,14 +188,25 @@ router.get('/google/callback', async (req, res) => {
   }
 });
 
+// TEST ROUTE - Should always log
+router.get('/test-user-exists', async (req, res) => {
+  console.error('🚨🚨🚨 TEST ROUTE HIT 🚨🚨🚨');
+  return res.json({ success: true, message: 'Test route works' });
+});
+
 // Lightweight existence check used by mobile pre-profile flow
 // GET /auth/user-exists?externalId=...&email=...&particleUserId=...
 router.get('/user-exists', async (req, res) => {
-  console.log('🔍 /user-exists endpoint HIT');
-  console.log('Request method:', req.method);
-  console.log('Request path:', req.path);
-  console.log('Request query:', req.query);
-  console.log('Request headers:', JSON.stringify(req.headers, null, 2));
+  // CRITICAL: This should ALWAYS log if the route is hit
+  console.error('🚨🚨🚨 ROUTE HANDLER EXECUTED - user-exists 🚨🚨🚨');
+  console.log('='.repeat(80));
+  console.log('🔍 [ROUTE HANDLER] /user-exists endpoint HIT');
+  console.log('🔍 Request method:', req.method);
+  console.log('🔍 Request path:', req.path);
+  console.log('🔍 Request originalUrl:', req.originalUrl);
+  console.log('🔍 Request query:', JSON.stringify(req.query));
+  console.log('🔍 Request headers:', JSON.stringify(req.headers, null, 2));
+  console.log('='.repeat(80));
   
   try {
     const { particleUserId } = req.query;
