@@ -191,9 +191,18 @@ router.get('/google/callback', async (req, res) => {
 // Lightweight existence check used by mobile pre-profile flow
 // GET /auth/user-exists?externalId=...&email=...&particleUserId=...
 router.get('/user-exists', async (req, res) => {
+  console.log('🔍 /user-exists endpoint HIT');
+  console.log('Request method:', req.method);
+  console.log('Request path:', req.path);
+  console.log('Request query:', req.query);
+  console.log('Request headers:', JSON.stringify(req.headers, null, 2));
+  
   try {
     const { particleUserId } = req.query;
+    console.log('Extracted particleUserId:', particleUserId);
+    
     if (!particleUserId) {
+      console.log('❌ Missing particleUserId');
       return res.status(400).json({ success: false, message: 'particleUserId required' });
     }
 

@@ -156,6 +156,16 @@ app.use(express.urlencoded({ extended: true }));
 // Logging
 app.use(morgan('combined'));
 
+// Additional request logging for debugging
+app.use((req, res, next) => {
+  if (req.path.includes('user-exists')) {
+    console.log('📥 Incoming request:', req.method, req.path, req.query);
+    console.log('📥 Request origin:', req.headers.origin);
+    console.log('📥 Request IP:', req.ip || req.connection.remoteAddress);
+  }
+  next();
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({
