@@ -22,6 +22,7 @@ const uploadRoutes = require('./routes/uploads');
 const { errorHandler } = require('./middleware/errorHandler');
 const { connectDB } = require('./config/database');
 const { autoSyncDatabase } = require('./scripts/autoSync');
+const notificationCron = require('./services/notificationCron');
 
 const app = express();
 const PORT = process.env.PORT || 8001;
@@ -203,6 +204,9 @@ const startServer = async () => {
     
     // Auto-sync database schema (creates missing tables/columns)
     await autoSyncDatabase();
+    
+    // Start notification cron jobs
+    notificationCron.startAll();
     
     // Note: Seed data manually using: npm run db:seed
     // Or run once with: npm run db:reset-seed

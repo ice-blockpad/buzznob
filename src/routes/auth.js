@@ -4,6 +4,7 @@ const { OAuth2Client } = require('google-auth-library');
 const { prisma } = require('../config/database');
 const { generateToken, generateRefreshToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
+const pushNotificationService = require('../services/pushNotificationService');
 
 const router = express.Router();
 const googleClient = new OAuth2Client(
@@ -200,10 +201,13 @@ router.get('/user-exists', async (req, res) => {
       where: {
         particleUserId: particleUserId
       },
-      select: { id: true },
+      select: { id: true, username: true, particleUserId: true },
     });
 
-    return res.json({ success: true, exists: !!user });
+    const exists = !!user;
+    console.log(`User existence check - particleUserId: ${particleUserId}, exists: ${exists}${user ? `, username: ${user.username}` : ''}`);
+
+    return res.json({ success: true, exists });
   } catch (error) {
     console.error('User exists check error:', error);
     return res.status(500).json({ success: false, message: 'Failed to check user existence' });
@@ -572,6 +576,14 @@ router.post('/finalize-account', async (req, res) => {
         });
 
         console.log(`✅ Referral reward processed: ${referrer.email} -> ${user.email}`);
+        
+        // Send push notification to referrer about new referral
+        setImmediate(() => {
+          pushNotificationService.sendNewReferralNotification(
+            referrer.id,
+            user.displayName || user.username
+          ).catch(err => console.error('Failed to send referral notification:', err));
+        });
       } catch (referralError) {
         console.error('Referral processing error:', referralError);
         return res.status(500).json({

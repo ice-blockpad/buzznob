@@ -1,4 +1,5 @@
 const { prisma } = require('../config/database');
+const pushNotificationService = require('./pushNotificationService');
 
 // Define app launch date (you can adjust this to your actual launch date)
 const APP_LAUNCH_DATE = new Date('2025-10-23');
@@ -176,6 +177,15 @@ async function awardBadge(userId, badge) {
     }
 
     console.log(`🏆 Awarded badge "${badge.name}" to user ${userId} (+${badge.pointsRequired} points)`);
+
+    // Send push notification when achievement is unlocked
+    setImmediate(() => {
+      pushNotificationService.sendAchievementUnlockedNotification(
+        userId,
+        badge.name,
+        badge.pointsRequired || 0
+      ).catch(err => console.error('Failed to send achievement notification:', err));
+    });
 
   } catch (error) {
     console.error(`Error awarding badge "${badge.name}":`, error);

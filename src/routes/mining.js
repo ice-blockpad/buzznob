@@ -3,6 +3,7 @@ const { prisma } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const { deduplicateRequest } = require('../middleware/deduplication');
+const pushNotificationService = require('../services/pushNotificationService');
 
 const router = express.Router();
 
@@ -45,6 +46,12 @@ async function updateMiningProgress(sessionId) {
         // Update referrer rates since this user is no longer mining
         // Note: This is called outside the transaction to avoid deadlocks
         setImmediate(() => updateReferrerMiningRates(session.userId));
+        
+        // Send push notification when mining session completes
+        setImmediate(() => {
+          pushNotificationService.sendMiningCompleteNotification(session.userId)
+            .catch(err => console.error('Failed to send mining complete notification:', err));
+        });
       } else {
         // Session is still active, update progress
         // Calculate session end time to cap accrual at 6 hours
