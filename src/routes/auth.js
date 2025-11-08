@@ -197,7 +197,8 @@ router.get('/user-exists', async (req, res) => {
       return res.status(400).json({ success: false, message: 'particleUserId required' });
     }
 
-    const user = await prisma.user.findFirst({
+    // Use findUnique since particleUserId is unique in schema
+    const user = await prisma.user.findUnique({
       where: {
         particleUserId: particleUserId
       },
@@ -206,6 +207,7 @@ router.get('/user-exists', async (req, res) => {
 
     const exists = !!user;
     console.log(`User existence check - particleUserId: ${particleUserId}, exists: ${exists}${user ? `, username: ${user.username}` : ''}`);
+    console.log(`User existence check - Full response: ${JSON.stringify({ success: true, exists })}`);
 
     return res.json({ success: true, exists });
   } catch (error) {
