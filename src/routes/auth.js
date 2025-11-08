@@ -188,48 +188,23 @@ router.get('/google/callback', async (req, res) => {
   }
 });
 
-// TEST ROUTE - Should always log
-router.get('/test-user-exists', async (req, res) => {
-  console.error('🚨🚨🚨 TEST ROUTE HIT 🚨🚨🚨');
-  return res.json({ success: true, message: 'Test route works' });
-});
-
 // Lightweight existence check used by mobile pre-profile flow
 // GET /auth/user-exists?externalId=...&email=...&particleUserId=...
 router.get('/user-exists', async (req, res) => {
-  // CRITICAL: This should ALWAYS log if the route is hit
-  console.error('🚨🚨🚨 ROUTE HANDLER EXECUTED - user-exists 🚨🚨🚨');
-  console.log('='.repeat(80));
-  console.log('🔍 [ROUTE HANDLER] /user-exists endpoint HIT');
-  console.log('🔍 Request method:', req.method);
-  console.log('🔍 Request path:', req.path);
-  console.log('🔍 Request originalUrl:', req.originalUrl);
-  console.log('🔍 Request query:', JSON.stringify(req.query));
-  console.log('🔍 Request headers:', JSON.stringify(req.headers, null, 2));
-  console.log('='.repeat(80));
-  
   try {
     const { particleUserId } = req.query;
-    console.log('Extracted particleUserId:', particleUserId);
-    
     if (!particleUserId) {
-      console.log('❌ Missing particleUserId');
       return res.status(400).json({ success: false, message: 'particleUserId required' });
     }
 
-    // Use findUnique since particleUserId is unique in schema
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: {
         particleUserId: particleUserId
       },
-      select: { id: true, username: true, particleUserId: true },
+      select: { id: true },
     });
 
-    const exists = !!user;
-    console.log(`User existence check - particleUserId: ${particleUserId}, exists: ${exists}${user ? `, username: ${user.username}` : ''}`);
-    console.log(`User existence check - Full response: ${JSON.stringify({ success: true, exists })}`);
-
-    return res.json({ success: true, exists });
+    return res.json({ success: true, exists: !!user });
   } catch (error) {
     console.error('User exists check error:', error);
     return res.status(500).json({ success: false, message: 'Failed to check user existence' });

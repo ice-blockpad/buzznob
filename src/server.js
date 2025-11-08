@@ -147,52 +147,14 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: 'Too many auth requests. Please wait a moment and try again.'
 });
-
-// Apply rate limiting to auth routes, but skip user-exists endpoint
-app.use('/api/auth', (req, res, next) => {
-  // Skip rate limiting for user-exists endpoint (no auth required, lightweight check)
-  if (req.path === '/user-exists' || req.originalUrl.includes('/user-exists')) {
-    return next();
-  }
-  // Apply rate limiting to all other auth endpoints
-  return authLimiter(req, res, next);
-});
+app.use('/api/auth', authLimiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Logging - log ALL requests first
-app.use((req, res, next) => {
-  // Log EVERY request to see if user-exists is coming through
-  if (req.originalUrl && req.originalUrl.includes('user-exists')) {
-    console.log('🚨🚨🚨 EARLY MIDDLEWARE - user-exists detected! 🚨🚨🚨');
-    console.log('🚨 Original URL:', req.originalUrl);
-    console.log('🚨 Path:', req.path);
-    console.log('🚨 Method:', req.method);
-  }
-  next();
-});
-
 // Logging
 app.use(morgan('combined'));
-
-// Additional request logging for debugging - MUST be before routes
-app.use((req, res, next) => {
-  // Log ALL requests to /api/auth/user-exists
-  if (req.path === '/api/auth/user-exists' || req.originalUrl.includes('user-exists')) {
-    console.log('='.repeat(80));
-    console.log('📥 [MIDDLEWARE] user-exists request detected!');
-    console.log('📥 Method:', req.method);
-    console.log('📥 Path:', req.path);
-    console.log('📥 Original URL:', req.originalUrl);
-    console.log('📥 Query:', JSON.stringify(req.query));
-    console.log('📥 Headers:', JSON.stringify(req.headers, null, 2));
-    console.log('📥 IP:', req.ip || req.connection.remoteAddress);
-    console.log('='.repeat(80));
-  }
-  next();
-});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
