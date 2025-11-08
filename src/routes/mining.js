@@ -547,6 +547,14 @@ router.post('/claim', authenticateToken, async (req, res) => {
     // Update mining rates for all users who referred this user
     await updateReferrerMiningRates(userId);
 
+    // Check for mining achievements
+    const achievementsService = require('../services/achievements');
+    setImmediate(() => {
+      achievementsService.checkBadgeEligibility(userId).catch(err => {
+        console.error('Failed to check mining achievements:', err);
+      });
+    });
+
     res.json({
       success: true,
       data: {

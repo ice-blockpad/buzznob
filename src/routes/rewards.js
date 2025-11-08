@@ -109,6 +109,14 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
       }
     });
 
+    // Check for streak achievements
+    const achievementsService = require('../services/achievements');
+    setImmediate(() => {
+      achievementsService.checkBadgeEligibility(userId).catch(err => {
+        console.error('Failed to check streak achievements:', err);
+      });
+    });
+
     res.json({
       success: true,
       message: 'Daily reward claimed successfully',

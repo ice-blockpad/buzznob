@@ -32,6 +32,15 @@ async function checkBadgeEligibility(userId) {
       where: { referredBy: userId }
     });
 
+    // Get user's completed mining sessions count
+    const miningSessionsCount = await prisma.miningSession.count({
+      where: {
+        userId,
+        isCompleted: true,
+        isClaimed: true
+      }
+    });
+
     // Define all achievement types
     const achievements = [
       // Point-based achievements
@@ -47,6 +56,13 @@ async function checkBadgeEligibility(userId) {
       { type: 'reading', value: 200, name: 'Explorer' },
       { type: 'reading', value: 500, name: 'Article Master' },
       { type: 'reading', value: 1000, name: 'Mr. Know-It-All' },
+      
+      // Mining-based achievements
+      { type: 'mining', value: 1, name: 'Stone Breaker' },
+      { type: 'mining', value: 10, name: 'Gem Addict' },
+      { type: 'mining', value: 25, name: 'Treasue Seeker' },
+      { type: 'mining', value: 50, name: 'Diamond Hunter' },
+      { type: 'mining', value: 100, name: '$BUZZ Digger' },
       
       // Social achievements (referral-based)
       { type: 'referrals', value: 1, name: 'First Referral' },
@@ -69,7 +85,8 @@ async function checkBadgeEligibility(userId) {
       await checkAndAwardAchievement(userId, achievement, {
         user,
         totalRead,
-        referralCount
+        referralCount,
+        miningSessionsCount
       });
     }
 
@@ -86,7 +103,7 @@ async function checkBadgeEligibility(userId) {
  */
 async function checkAndAwardAchievement(userId, achievement, userData) {
   try {
-    const { user, totalRead, referralCount } = userData;
+    const { user, totalRead, referralCount, miningSessionsCount } = userData;
     
     // Check if badge exists in database
     const badgeExists = await prisma.badge.findUnique({
@@ -120,6 +137,10 @@ async function checkAndAwardAchievement(userId, achievement, userData) {
         
       case 'reading':
         shouldAwardBadge = totalRead >= achievement.value;
+        break;
+        
+      case 'mining':
+        shouldAwardBadge = miningSessionsCount >= achievement.value;
         break;
         
       case 'referrals':

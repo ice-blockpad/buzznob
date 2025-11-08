@@ -11,31 +11,31 @@ async function main() {
   const badges = [
     // Mining Achievements (Common - Epic)
     {
-      name: 'First Miner',
+      name: 'Stone Breaker',
       description: 'Complete your first mining session',
       pointsRequired: 50,
       category: 'mining'
     },
     {
-      name: 'Mining Enthusiast',
+      name: 'Gem Addict',
       description: 'Complete 10 mining sessions',
       pointsRequired: 100,
       category: 'mining'
     },
     {
-      name: 'Mining Expert',
+      name: 'Treasue Seeker',
       description: 'Complete 25 mining sessions',
       pointsRequired: 200,
       category: 'mining'
     },
     {
-      name: 'Mining Master',
+      name: 'Diamond Hunter',
       description: 'Complete 50 mining sessions',
       pointsRequired: 500,
       category: 'mining'
     },
     {
-      name: 'Diamond Hunter',
+      name: '$BUZZ Digger',
       description: 'Complete 100 mining sessions',
       pointsRequired: 1000,
       category: 'mining'

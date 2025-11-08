@@ -19,13 +19,10 @@ class MiningCron {
   async updateMiningRates() {
     // Prevent concurrent runs
     if (this.isUpdatingRates) {
-      console.log('⏭️ Mining rate update already in progress, skipping...');
       return;
     }
 
     this.isUpdatingRates = true;
-    const startTime = Date.now();
-    console.log('🔄 Starting mining rate update cron job...');
 
     try {
       // Find all users with active mining sessions
@@ -47,12 +44,6 @@ class MiningCron {
         }
       });
 
-      console.log(`📊 Found ${activeSessions.length} active mining sessions`);
-
-      let updatedCount = 0;
-      let skippedCount = 0;
-      let errorCount = 0;
-
       // Process each session
       for (const session of activeSessions) {
         try {
@@ -63,8 +54,6 @@ class MiningCron {
           });
 
           if (!user) {
-            console.warn(`⚠️ User ${session.userId} not found, skipping session ${session.id}`);
-            skippedCount++;
             continue;
           }
 
@@ -119,31 +108,13 @@ class MiningCron {
                 lastUpdate: newLastUpdate
               }
             });
-
-            updatedCount++;
-            console.log(`✅ Updated session ${session.id}: User ${session.userId} - Rate ${session.currentRate.toFixed(2)} → ${correctRate.toFixed(2)} (${activeReferrals} active referrals)`);
-          } else {
-            skippedCount++;
           }
         } catch (error) {
-          errorCount++;
-          console.error(`❌ Error updating session ${session.id}:`, error.message);
           // Continue with next session
         }
       }
-
-      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-      console.log('═══════════════════════════════════════════════════════════');
-      console.log('📊 Mining Rate Update Summary:');
-      console.log(`   • Total sessions checked: ${activeSessions.length}`);
-      console.log(`   • Updated: ${updatedCount}`);
-      console.log(`   • Skipped (already correct): ${skippedCount}`);
-      console.log(`   • Errors: ${errorCount}`);
-      console.log(`   • Duration: ${duration}s`);
-      console.log('═══════════════════════════════════════════════════════════');
-
     } catch (error) {
-      console.error('❌ Error in mining rate update cron:', error);
+      // Silent error handling
     } finally {
       this.isUpdatingRates = false;
     }
@@ -155,8 +126,8 @@ class MiningCron {
    */
   startMiningRateUpdate() {
     // Run immediately on startup
-    this.updateMiningRates().catch(err => {
-      console.error('❌ Error running initial mining rate update:', err);
+    this.updateMiningRates().catch(() => {
+      // Silent error handling
     });
 
     // Schedule to run every 10 minutes
@@ -165,7 +136,6 @@ class MiningCron {
     });
 
     this.jobs.push(job);
-    console.log('✅ Mining rate update cron job started (runs immediately, then every 10 minutes)');
   }
 
   /**
@@ -173,7 +143,6 @@ class MiningCron {
    */
   startAll() {
     this.startMiningRateUpdate();
-    console.log('✅ All mining cron jobs started');
   }
 
   /**
@@ -183,7 +152,6 @@ class MiningCron {
     this.jobs.forEach((job) => job.stop());
     this.jobs = [];
     this.isUpdatingRates = false;
-    console.log('✅ All mining cron jobs stopped');
   }
 }
 

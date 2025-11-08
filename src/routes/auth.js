@@ -377,6 +377,14 @@ router.post('/finalize-account', async (req, res) => {
             user.displayName || user.username
           ).catch(err => console.error('Failed to send referral notification:', err));
         });
+
+        // Check for referral achievements for the referrer
+        const achievementsService = require('../services/achievements');
+        setImmediate(() => {
+          achievementsService.checkBadgeEligibility(referrer.id).catch(err => {
+            console.error('Failed to check referral achievements:', err);
+          });
+        });
       } catch (referralError) {
         console.error('Referral processing error:', referralError);
         return res.status(500).json({
