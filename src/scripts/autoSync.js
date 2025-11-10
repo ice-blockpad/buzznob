@@ -9,6 +9,8 @@ const execPromise = util.promisify(exec);
 async function autoSyncDatabase() {
   console.log('🔄 Auto-syncing database schema...');
 
+
+
   
   
   try {
