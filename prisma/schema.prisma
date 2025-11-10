@@ -9,7 +9,7 @@ datasource db {
 
 model User {
   id               String           @id @default(cuid()) @db.VarChar
-  email            String?          // Not unique - allow multiple accounts with same email (different Particle accounts)
+  email            String? // Not unique - allow multiple accounts with same email (different Particle accounts)
   walletAddress    String?          @unique @map("wallet_address")
   username         String           @unique
   externalId       String?          @unique @map("external_id") // Provider-specific ID (Google ID, Discord ID, Twitter ID, etc.)
@@ -58,6 +58,14 @@ model User {
   referrals        User[]           @relation("UserReferrals")
   walletData       WalletData[]
 
+  // Indexes for performance optimization
+  @@index([referredBy]) // For referral queries
+  @@index([points]) // For leaderboard queries (ORDER BY points DESC)
+  @@index([isActive]) // For filtering active users
+  @@index([isActive, pushToken]) // For notification queries (isActive = true AND pushToken IS NOT NULL)
+  @@index([lastLogin]) // For active user queries
+  @@index([createdAt]) // For sorting by creation date
+  @@index([role]) // For filtering by role
   @@map("users")
 }
 
@@ -86,6 +94,16 @@ model Article {
   reviewer         User?          @relation("ArticleReviewer", fields: [reviewedBy], references: [id])
   activities       UserActivity[]
 
+  // Indexes for performance optimization
+  @@index([authorId]) // For queries filtering by author
+  @@index([status]) // For filtering by status (published, pending, etc.)
+  @@index([category]) // For filtering by category
+  @@index([isFeatured]) // For featured articles
+  @@index([status, publishedAt]) // Composite index for published articles sorted by date
+  @@index([status, createdAt]) // Composite index for published articles sorted by creation
+  @@index([authorId, status]) // For user's articles by status
+  @@index([publishedAt]) // For sorting published articles
+  @@index([createdAt]) // For sorting by creation date
   @@map("articles")
 }
 
@@ -100,6 +118,11 @@ model UserActivity {
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, articleId])
+  // Indexes for performance optimization
+  @@index([userId]) // For user activity history queries
+  @@index([articleId]) // For article read count queries
+  @@index([userId, completedAt]) // Composite index for user activity sorted by date
+  @@index([completedAt]) // For leaderboard date range queries
   @@map("user_activities")
 }
 
@@ -114,6 +137,11 @@ model Reward {
   createdAt   DateTime  @default(now()) @map("created_at")
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Indexes for performance optimization
+  @@index([userId]) // For user reward queries
+  @@index([status]) // For filtering by status
+  @@index([userId, status]) // Composite index for user rewards by status
+  @@index([createdAt]) // For sorting rewards by date
   @@map("rewards")
 }
 
@@ -140,6 +168,10 @@ model UserBadge {
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, badgeId])
+  // Indexes for performance optimization
+  @@index([userId]) // For user badge queries
+  @@index([userId, earnedAt]) // Composite index for user badges sorted by date
+  @@index([earnedAt]) // For sorting by earned date
   @@map("user_badges")
 }
 
@@ -153,6 +185,10 @@ model Leaderboard {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, period])
+  // Indexes for performance optimization
+  @@index([period]) // For filtering by period
+  @@index([period, points]) // Composite index for leaderboard queries sorted by points
+  @@index([period, rank]) // Composite index for leaderboard queries sorted by rank
   @@map("leaderboards")
 }
 
@@ -173,6 +209,15 @@ model MiningSession {
   endsAt      DateTime  @map("ends_at")
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Indexes for performance optimization
+  @@index([userId]) // For user mining session queries
+  @@index([userId, isActive]) // Composite index for active user sessions
+  @@index([userId, isCompleted, isClaimed]) // Composite index for unclaimed completed sessions
+  @@index([isActive, endsAt]) // Composite index for expired session queries
+  @@index([isActive]) // For filtering active sessions
+  @@index([isCompleted]) // For filtering completed sessions
+  @@index([endsAt]) // For expired session queries
+  @@index([startedAt]) // For sorting by start date
   @@map("mining_sessions")
 }
 
@@ -186,6 +231,10 @@ model MiningClaim {
   createdAt     DateTime @default(now()) @map("created_at")
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Indexes for performance optimization
+  @@index([userId]) // For user mining claim queries
+  @@index([userId, claimedAt]) // Composite index for user claims sorted by date
+  @@index([claimedAt]) // For sorting by claim date
   @@map("mining_claims")
 }
 
@@ -201,6 +250,9 @@ model WalletData {
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, publicKey])
+  // Indexes for performance optimization
+  @@index([userId]) // For user wallet queries
+  @@index([isActive]) // For filtering active wallets
   @@map("wallet_data")
 }
 
@@ -223,6 +275,11 @@ model KycSubmission {
   updatedAt       DateTime  @updatedAt @map("updated_at")
   user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Indexes for performance optimization
+  @@index([userId]) // For user KYC queries
+  @@index([status]) // For filtering by status
+  @@index([status, createdAt]) // Composite index for pending KYC sorted by date
+  @@index([createdAt]) // For sorting by creation date
   @@map("kyc_submissions")
 }
 
@@ -235,6 +292,12 @@ model RefreshToken {
   createdAt DateTime @default(now()) @map("created_at")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Indexes for performance optimization
+  @@index([userId]) // For user token queries
+  @@index([tokenHash]) // For token lookup (should be unique but not enforced in schema)
+  @@index([isRevoked]) // For filtering revoked tokens
+  @@index([expiresAt]) // For cleaning up expired tokens
+  @@index([userId, isRevoked, expiresAt]) // Composite index for token validation
   @@map("refresh_tokens")
 }
 
@@ -252,6 +315,11 @@ model UserSession {
   createdAt    DateTime @default(now()) @map("created_at")
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Indexes for performance optimization
+  @@index([userId]) // For user session queries
+  @@index([isActive]) // For filtering active sessions
+  @@index([expiresAt]) // For cleaning up expired sessions
+  @@index([userId, isActive, expiresAt]) // Composite index for session validation
   @@map("user_sessions")
 }
 
@@ -271,6 +339,11 @@ model AvailableReward {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
+  // Indexes for performance optimization
+  @@index([isActive]) // For filtering active rewards
+  @@index([pointsRequired]) // For filtering by points required
+  @@index([category]) // For filtering by category
+  @@index([isActive, pointsRequired]) // Composite index for active rewards sorted by points
   @@map("available_rewards")
 }
 
@@ -285,6 +358,11 @@ model ReferralReward {
   referrer     User     @relation("ReferralRewardsAsReferrer", fields: [referrerId], references: [id])
 
   @@unique([referrerId, refereeId])
+  // Indexes for performance optimization
+  @@index([referrerId]) // For referrer reward queries
+  @@index([refereeId]) // For referee reward queries
+  @@index([status]) // For filtering by status
+  @@index([referrerId, status]) // Composite index for referrer rewards by status
   @@map("referral_rewards")
 }
 
@@ -297,6 +375,9 @@ model Follow {
   following   User     @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
 
   @@unique([followerId, followingId])
+  // Indexes for performance optimization
+  // Note: followerId and followingId are already indexed by the unique constraint above
+  @@index([createdAt]) // For sorting by creation date
   @@map("follows")
 }
 
@@ -309,5 +390,9 @@ model DailyReward {
   claimedAt    DateTime @default(now()) @map("claimed_at")
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Indexes for performance optimization
+  @@index([userId]) // For user daily reward queries
+  @@index([userId, claimedAt]) // Composite index for user daily rewards sorted by date
+  @@index([claimedAt]) // For sorting by claim date
   @@map("daily_rewards")
 }
