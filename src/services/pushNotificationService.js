@@ -19,6 +19,10 @@ class PushNotificationService {
    */
   async sendNotification(pushToken, notification) {
     try {
+      console.log('📤 [PUSH NOTIFICATION] Starting to send notification...');
+      console.log('📤 [PUSH NOTIFICATION] Push Token:', pushToken ? `${pushToken.substring(0, 20)}...` : 'NULL');
+      console.log('📤 [PUSH NOTIFICATION] Notification:', JSON.stringify(notification, null, 2));
+
       const message = {
         to: pushToken,
         sound: 'default',
@@ -29,6 +33,9 @@ class PushNotificationService {
         channelId: 'default',
       };
 
+      console.log('📤 [PUSH NOTIFICATION] Sending to Expo API:', this.expoPushApiUrl);
+      console.log('📤 [PUSH NOTIFICATION] Message payload:', JSON.stringify(message, null, 2));
+
       const response = await axios.post(this.expoPushApiUrl, message, {
         headers: {
           'Accept': 'application/json',
@@ -37,15 +44,40 @@ class PushNotificationService {
         },
       });
 
+      console.log('✅ [PUSH NOTIFICATION] Expo API Response Status:', response.status);
+      console.log('✅ [PUSH NOTIFICATION] Expo API Response Data:', JSON.stringify(response.data, null, 2));
+
+      // Check Expo response status
+      if (response.data && response.data.data && Array.isArray(response.data.data)) {
+        const expoResponse = response.data.data[0];
+        console.log('📊 [PUSH NOTIFICATION] Expo Response Status:', expoResponse.status);
+        console.log('📊 [PUSH NOTIFICATION] Expo Response ID:', expoResponse.id);
+        
+        if (expoResponse.status === 'error') {
+          console.error('❌ [PUSH NOTIFICATION] Expo returned error:', expoResponse.message);
+          console.error('❌ [PUSH NOTIFICATION] Error details:', expoResponse.details);
+          return {
+            success: false,
+            error: expoResponse.message || 'Expo API returned error',
+            expoError: expoResponse,
+            data: response.data,
+          };
+        } else if (expoResponse.status === 'ok') {
+          console.log('✅ [PUSH NOTIFICATION] Expo accepted notification successfully');
+        }
+      }
+
       return {
         success: true,
         data: response.data,
       };
     } catch (error) {
-      console.error('Error sending push notification:', error);
+      console.error('❌ [PUSH NOTIFICATION] Error sending push notification:', error.message);
+      console.error('❌ [PUSH NOTIFICATION] Error details:', error.response?.data || error.message);
       return {
         success: false,
         error: error.message,
+        errorDetails: error.response?.data,
       };
     }
   }
@@ -96,12 +128,17 @@ class PushNotificationService {
    */
   async sendMiningCompleteNotification(userId) {
     try {
+      console.log('⛏️ [MINING NOTIFICATION] Starting for user:', userId);
       const user = await prisma.user.findUnique({
         where: { id: userId },
         select: { pushToken: true, username: true },
       });
 
+      console.log('⛏️ [MINING NOTIFICATION] User found:', user ? `Yes (${user.username})` : 'No');
+      console.log('⛏️ [MINING NOTIFICATION] Push token exists:', user?.pushToken ? 'Yes' : 'No');
+
       if (!user || !user.pushToken) {
+        console.warn('⚠️ [MINING NOTIFICATION] User not found or no push token registered');
         return {
           success: false,
           message: 'User not found or no push token registered',
@@ -116,9 +153,12 @@ class PushNotificationService {
         },
       };
 
-      return await this.sendNotification(user.pushToken, notification);
+      console.log('⛏️ [MINING NOTIFICATION] Calling sendNotification...');
+      const result = await this.sendNotification(user.pushToken, notification);
+      console.log('⛏️ [MINING NOTIFICATION] Result:', result.success ? '✅ Success' : '❌ Failed');
+      return result;
     } catch (error) {
-      console.error('Error sending mining complete notification:', error);
+      console.error('❌ [MINING NOTIFICATION] Error sending mining complete notification:', error);
       return {
         success: false,
         error: error.message,
@@ -171,12 +211,19 @@ class PushNotificationService {
    */
   async sendNewReferralNotification(referrerId, referralName) {
     try {
+      console.log('👥 [REFERRAL NOTIFICATION] Starting for referrer:', referrerId);
+      console.log('👥 [REFERRAL NOTIFICATION] Referral name:', referralName);
+      
       const referrer = await prisma.user.findUnique({
         where: { id: referrerId },
         select: { pushToken: true, username: true },
       });
 
+      console.log('👥 [REFERRAL NOTIFICATION] Referrer found:', referrer ? `Yes (${referrer.username})` : 'No');
+      console.log('👥 [REFERRAL NOTIFICATION] Push token exists:', referrer?.pushToken ? 'Yes' : 'No');
+
       if (!referrer || !referrer.pushToken) {
+        console.warn('⚠️ [REFERRAL NOTIFICATION] Referrer not found or no push token registered');
         return {
           success: false,
           message: 'Referrer not found or no push token registered',
@@ -192,9 +239,12 @@ class PushNotificationService {
         },
       };
 
-      return await this.sendNotification(referrer.pushToken, notification);
+      console.log('👥 [REFERRAL NOTIFICATION] Calling sendNotification...');
+      const result = await this.sendNotification(referrer.pushToken, notification);
+      console.log('👥 [REFERRAL NOTIFICATION] Result:', result.success ? '✅ Success' : '❌ Failed');
+      return result;
     } catch (error) {
-      console.error('Error sending new referral notification:', error);
+      console.error('❌ [REFERRAL NOTIFICATION] Error sending new referral notification:', error);
       return {
         success: false,
         error: error.message,

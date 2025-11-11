@@ -934,4 +934,62 @@ router.post('/push-token', authenticateToken, async (req, res) => {
   }
 });
 
+// Test push notification endpoint
+router.post('/test-notification', authenticateToken, async (req, res) => {
+  try {
+    console.log('🧪 [TEST NOTIFICATION] Test notification requested by user:', req.user.id);
+    
+    const userId = req.user.id;
+    const pushNotificationService = require('../services/pushNotificationService');
+    
+    // Get user's push token
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { pushToken: true, username: true },
+    });
+
+    console.log('🧪 [TEST NOTIFICATION] User found:', user ? `Yes (${user.username})` : 'No');
+    console.log('🧪 [TEST NOTIFICATION] Push token exists:', user?.pushToken ? 'Yes' : 'No');
+
+    if (!user || !user.pushToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'NO_PUSH_TOKEN',
+        message: 'No push token registered for this user'
+      });
+    }
+
+    const notification = {
+      title: '🧪 Test Notification',
+      body: 'This is a test notification from the backend!',
+      data: {
+        type: 'test',
+        timestamp: new Date().toISOString(),
+      },
+    };
+
+    console.log('🧪 [TEST NOTIFICATION] Sending test notification...');
+    const result = await pushNotificationService.sendNotification(user.pushToken, notification);
+    
+    console.log('🧪 [TEST NOTIFICATION] Result:', result.success ? '✅ Success' : '❌ Failed');
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Test notification sent successfully' : 'Failed to send test notification',
+      expoResponse: result.data,
+      error: result.error,
+      expoError: result.expoError,
+    });
+
+  } catch (error) {
+    console.error('❌ [TEST NOTIFICATION] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'TEST_NOTIFICATION_ERROR',
+      message: 'Failed to send test notification',
+      errorDetails: error.message,
+    });
+  }
+});
+
 module.exports = router;
