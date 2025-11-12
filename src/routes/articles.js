@@ -164,10 +164,37 @@ router.get('/', optionalAuth, async (req, res) => {
 
     const totalCount = await prisma.article.count({ where });
 
+    // Check if user has read each article (if authenticated)
+    let articlesWithReadStatus = articles;
+    if (req.user && req.user.id) {
+      const articleIds = articles.map(a => a.id);
+      const userActivities = await prisma.userActivity.findMany({
+        where: {
+          userId: req.user.id,
+          articleId: { in: articleIds }
+        },
+        select: {
+          articleId: true
+        }
+      });
+      
+      const readArticleIds = new Set(userActivities.map(activity => activity.articleId));
+      articlesWithReadStatus = articles.map(article => ({
+        ...article,
+        isRead: readArticleIds.has(article.id)
+      }));
+    } else {
+      // If not authenticated, all articles are unread
+      articlesWithReadStatus = articles.map(article => ({
+        ...article,
+        isRead: false
+      }));
+    }
+
     res.json({
       success: true,
       data: {
-        articles,
+        articles: articlesWithReadStatus,
         pagination: {
           page,
           limit,
@@ -247,10 +274,37 @@ router.get('/search', optionalAuth, async (req, res) => {
 
     const totalCount = await prisma.article.count({ where });
 
+    // Check if user has read each article (if authenticated)
+    let articlesWithReadStatus = articles;
+    if (req.user && req.user.id) {
+      const articleIds = articles.map(a => a.id);
+      const userActivities = await prisma.userActivity.findMany({
+        where: {
+          userId: req.user.id,
+          articleId: { in: articleIds }
+        },
+        select: {
+          articleId: true
+        }
+      });
+      
+      const readArticleIds = new Set(userActivities.map(activity => activity.articleId));
+      articlesWithReadStatus = articles.map(article => ({
+        ...article,
+        isRead: readArticleIds.has(article.id)
+      }));
+    } else {
+      // If not authenticated, all articles are unread
+      articlesWithReadStatus = articles.map(article => ({
+        ...article,
+        isRead: false
+      }));
+    }
+
     res.json({
       success: true,
       data: {
-        articles,
+        articles: articlesWithReadStatus,
         pagination: {
           page,
           limit,

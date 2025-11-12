@@ -139,38 +139,16 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
   }
 });
 
-// Get daily reward status (24-hour cooldown)
+// Get daily reward status (UTC day boundary)
 router.get('/daily/status', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const requestKey = `daily:status:${userId}`;
     
     const status = await deduplicateRequest(requestKey, async () => {
-    const now = new Date();
-    const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-
-      // Single query to get both recent claim and user streak
-      const result = await prisma.$queryRaw`
-        SELECT 
-          u.streak_count as "streakCount",
-          dr.claimed_at as "lastClaimedAt",
-          dr.points_earned as "lastPointsEarned",
-          dr.streak_count as "lastStreakCount",
-          dr.streak_bonus as "lastStreakBonus"
-        FROM users u
-        LEFT JOIN daily_rewards dr ON u.id = dr.user_id 
-          AND dr.claimed_at >= ${twentyFourHoursAgo}
-        WHERE u.id = ${userId}
-        ORDER BY dr.claimed_at DESC
-        LIMIT 1
-      `;
-
-      if (!result || result.length === 0) {
-        throw new Error('USER_NOT_FOUND');
-      }
-
-      const data = result[0];
-      // Compute next reward based on UTC day continuity
+      const now = new Date();
+      
+      // UTC day helper functions
       const startOfUtcDay = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
       const nextUtcMidnight = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0, 0));
       const utcDayDiff = (a, b) => {
@@ -179,44 +157,76 @@ router.get('/daily/status', authenticateToken, async (req, res) => {
         return Math.round((sa - sb) / (24 * 60 * 60 * 1000));
       };
 
-      const lastClaimedAt = data.lastClaimedAt ? new Date(data.lastClaimedAt) : null;
-      let nextConsecutive = parseInt(data.streakCount) || 0;
+      // Get user and their most recent claim (regardless of when it was)
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { streakCount: true }
+      });
+
+      if (!user) {
+        throw new Error('USER_NOT_FOUND');
+      }
+
+      const lastClaim = await prisma.dailyReward.findFirst({
+        where: { userId },
+        orderBy: { claimedAt: 'desc' }
+      });
+
+      const lastClaimedAt = lastClaim ? new Date(lastClaim.claimedAt) : null;
+      const currentStreak = parseInt(user.streakCount) || 0;
+
+      // Calculate next consecutive day based on UTC day continuity (same logic as claim endpoint)
+      let nextConsecutive = currentStreak || 0;
+      
       if (lastClaimedAt) {
         const diffDays = utcDayDiff(now, lastClaimedAt);
+        console.log(`[Daily Status] User ${userId}: Current streak: ${currentStreak}, Days since last claim: ${diffDays}`);
+        
         if (diffDays === 0) {
-          // already claimed today; preview for tomorrow as continued streak
-          nextConsecutive = nextConsecutive + 1;
+          // Already claimed today UTC - next claim will be tomorrow, continuing streak
+          nextConsecutive = currentStreak + 1;
+          console.log(`[Daily Status] User ${userId}: Already claimed today, next claim will be day ${nextConsecutive}`);
         } else if (diffDays === 1) {
-          // Will claim tomorrow - increment streak
-          nextConsecutive = nextConsecutive + 1;
+          // Last claim was yesterday UTC - next claim continues streak
+          nextConsecutive = currentStreak + 1;
+          console.log(`[Daily Status] User ${userId}: Last claim was yesterday, next claim will be day ${nextConsecutive}`);
         } else if (diffDays >= 2) {
-          // Streak broken - will reset to 1 on next claim
+          // Streak broken - next claim will reset to day 1
           nextConsecutive = 1;
+          console.log(`[Daily Status] User ${userId}: Streak broken (missed ${diffDays - 1} days), next claim will be day 1`);
         }
       } else {
         // No previous claim - next claim will be day 1
         nextConsecutive = 1;
+        console.log(`[Daily Status] User ${userId}: No previous claim, next claim will be day 1`);
       }
+
       // Reward formula: 5 + 5 * (nextConsecutive - 1), max 50
       // Day 1 (nextConsecutive = 1): 5 + (0 * 5) = 5
       // Day 2 (nextConsecutive = 2): 5 + (1 * 5) = 10
+      // Day 3 (nextConsecutive = 3): 5 + (2 * 5) = 15
+      // Day 4 (nextConsecutive = 4): 5 + (3 * 5) = 20
       // ... up to Day 10 (nextConsecutive = 10): 5 + (9 * 5) = 50
       const computedBase = Math.min(5 + ((nextConsecutive - 1) * 5), 50);
       const baseReward = Math.max(5, computedBase);
       const totalReward = baseReward; // no separate streak bonus in new model
       
-    let isOnCooldown = false;
-    let nextAvailableAt = null;
-    let hoursRemaining = 0;
+      // Check if on cooldown (already claimed today UTC)
+      let isOnCooldown = false;
+      let nextAvailableAt = null;
+      let hoursRemaining = 0;
 
-      if (data.lastClaimedAt) {
-        const last = new Date(data.lastClaimedAt);
-        if (utcDayDiff(now, last) === 0) {
+      if (lastClaimedAt) {
+        const diffDays = utcDayDiff(now, lastClaimedAt);
+        if (diffDays === 0) {
+          // Already claimed today UTC
           isOnCooldown = true;
           nextAvailableAt = nextUtcMidnight(now);
           hoursRemaining = Math.ceil((nextAvailableAt - now) / (1000 * 60 * 60));
         }
       }
+
+      console.log(`[Daily Status] User ${userId}: Next reward will be ${totalReward} $BUZZ (day ${nextConsecutive})`);
 
       return {
         isOnCooldown,
@@ -225,7 +235,7 @@ router.get('/daily/status', authenticateToken, async (req, res) => {
         baseReward,
         streakBonus: 0,
         totalReward,
-        currentStreak: parseInt(data.streakCount) || 0
+        currentStreak: currentStreak
       };
     });
 
