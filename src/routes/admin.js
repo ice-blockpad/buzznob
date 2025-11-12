@@ -1017,50 +1017,6 @@ router.patch('/articles/:id/trending', authenticateToken, requireAdmin, async (r
   }
 });
 
-// Toggle featured status for article (admin only)
-router.patch('/articles/:id/featured', authenticateToken, requireAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { isFeatured } = req.body;
-
-    if (typeof isFeatured !== 'boolean') {
-      return res.status(400).json({
-        success: false,
-        error: 'INVALID_DATA',
-        message: 'isFeatured must be a boolean value'
-      });
-    }
-
-    const article = await prisma.article.update({
-      where: { id },
-      data: { isFeatured }
-    });
-
-    res.json({
-      success: true,
-      message: `Article ${isFeatured ? 'set as featured' : 'removed from featured'} successfully`,
-      data: { article }
-    });
-
-  } catch (error) {
-    console.error('Toggle featured status error:', error);
-    
-    if (error.code === 'P2025') {
-      return res.status(404).json({
-        success: false,
-        error: 'ARTICLE_NOT_FOUND',
-        message: 'Article not found'
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      error: 'FEATURED_TOGGLE_ERROR',
-      message: 'Failed to toggle featured status'
-    });
-  }
-});
-
 // Delete article (admin only)
 router.delete('/articles/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
