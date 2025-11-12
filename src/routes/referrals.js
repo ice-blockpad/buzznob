@@ -297,6 +297,8 @@ router.post('/remind-inactive', authenticateToken, async (req, res) => {
       select: {
         id: true,
         lastInactiveReminderAt: true,
+        username: true,
+        displayName: true,
       },
     });
 
@@ -375,19 +377,21 @@ router.post('/remind-inactive', authenticateToken, async (req, res) => {
     }
 
     // Send notifications to all inactive referrals
-    const notification = {
-      title: '⛏️ Time to Mine!',
-      body: 'Your referrer wants you to start mining! Come back and earn $BUZZ!',
-      data: {
-        type: 'remind_mining',
-      },
-    };
-
+    const referrerName = user.displayName || user.username || 'Your referrer';
     let notifiedCount = 0;
     let failedCount = 0;
 
     for (const referral of trulyInactive) {
       try {
+        const notification = {
+          title: '⛏️ Time to Mine!',
+          body: `${referrerName} just reminded you to start mining! Come back and earn $BUZZ!`,
+          data: {
+            type: 'remind_mining',
+            referrerName,
+          },
+        };
+
         const result = await pushNotificationService.sendNotification(referral.pushToken, notification);
         if (result.success) {
           notifiedCount++;
@@ -499,7 +503,7 @@ router.post('/test-remind-inactive', authenticateToken, async (req, res) => {
     // Get user's push token to send a test notification to themselves
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { pushToken: true, username: true },
+      select: { pushToken: true, username: true, displayName: true },
     });
 
     console.log('📢 [TEST REMIND INACTIVE] User found:', user ? `Yes (${user.username})` : 'No');
@@ -514,11 +518,13 @@ router.post('/test-remind-inactive', authenticateToken, async (req, res) => {
     }
 
     // Send test notification with the same format as the actual remind inactive
+    const referrerName = user.displayName || user.username || 'Your referrer';
     const notification = {
       title: '⛏️ Time to Mine!',
-      body: 'Your referrer wants you to start mining! Come back and earn $BUZZ!',
+      body: `${referrerName} just reminded you to start mining! Come back and earn $BUZZ!`,
       data: {
         type: 'remind_mining',
+        referrerName,
       },
     };
 
