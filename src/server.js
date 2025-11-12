@@ -22,7 +22,7 @@ const uploadRoutes = require('./routes/uploads');
 const { errorHandler } = require('./middleware/errorHandler');
 const { connectDB } = require('./config/database');
 const { autoSyncDatabase } = require('./scripts/autoSync');
-const notificationCron = require('./services/notificationCron');
+const notificationCronOptimized = require('./services/notificationCronOptimized');
 const miningCron = require('./services/miningCron');
 
 const app = express();
@@ -206,8 +206,8 @@ const startServer = async () => {
     // Auto-sync database schema (creates missing tables/columns)
     await autoSyncDatabase();
     
-    // Start notification cron jobs
-    notificationCron.startAll();
+    // Start notification cron jobs (optimized for scale)
+    notificationCronOptimized.startAll();
     
     // Start mining cron jobs
     miningCron.startAll();

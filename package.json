@@ -18,6 +18,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:api": "node test-api.js",
+    "test:notifications": "node test-notifications.js",
     "health": "node healthcheck.js",
     "db:init": "node src/scripts/initDatabase.js",
     "db:force-seed": "set FORCE_SEED=true && node src/scripts/initDatabase.js",
