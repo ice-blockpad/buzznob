@@ -48,14 +48,27 @@ class PushNotificationService {
       console.log('✅ [PUSH NOTIFICATION] Expo API Response Data:', JSON.stringify(response.data, null, 2));
 
       // Check Expo response status
-      if (response.data && response.data.data && Array.isArray(response.data.data)) {
-        const expoResponse = response.data.data[0];
+      // Expo returns: { data: { status: "ok"|"error", message: "...", ... } } for single notification
+      // Or: { data: [{ status: "ok"|"error", ... }, ...] } for multiple notifications
+      let expoResponse = null;
+      
+      if (response.data && response.data.data) {
+        if (Array.isArray(response.data.data)) {
+          // Multiple notifications
+          expoResponse = response.data.data[0];
+        } else {
+          // Single notification (object, not array)
+          expoResponse = response.data.data;
+        }
+      }
+
+      if (expoResponse) {
         console.log('📊 [PUSH NOTIFICATION] Expo Response Status:', expoResponse.status);
-        console.log('📊 [PUSH NOTIFICATION] Expo Response ID:', expoResponse.id);
+        console.log('📊 [PUSH NOTIFICATION] Expo Response ID:', expoResponse.id || 'N/A');
         
         if (expoResponse.status === 'error') {
           console.error('❌ [PUSH NOTIFICATION] Expo returned error:', expoResponse.message);
-          console.error('❌ [PUSH NOTIFICATION] Error details:', expoResponse.details);
+          console.error('❌ [PUSH NOTIFICATION] Error details:', JSON.stringify(expoResponse.details, null, 2));
           return {
             success: false,
             error: expoResponse.message || 'Expo API returned error',
@@ -64,7 +77,10 @@ class PushNotificationService {
           };
         } else if (expoResponse.status === 'ok') {
           console.log('✅ [PUSH NOTIFICATION] Expo accepted notification successfully');
+          console.log('✅ [PUSH NOTIFICATION] Notification ID:', expoResponse.id);
         }
+      } else {
+        console.warn('⚠️ [PUSH NOTIFICATION] Unexpected Expo response format');
       }
 
       return {

@@ -972,10 +972,14 @@ router.post('/test-notification', authenticateToken, async (req, res) => {
     const result = await pushNotificationService.sendNotification(user.pushToken, notification);
     
     console.log('🧪 [TEST NOTIFICATION] Result:', result.success ? '✅ Success' : '❌ Failed');
+    if (!result.success) {
+      console.error('🧪 [TEST NOTIFICATION] Error:', result.error);
+      console.error('🧪 [TEST NOTIFICATION] Expo Error:', JSON.stringify(result.expoError, null, 2));
+    }
     
     res.json({
       success: result.success,
-      message: result.success ? 'Test notification sent successfully' : 'Failed to send test notification',
+      message: result.success ? 'Test notification sent successfully' : (result.error || 'Failed to send test notification'),
       expoResponse: result.data,
       error: result.error,
       expoError: result.expoError,
