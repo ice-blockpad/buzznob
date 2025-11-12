@@ -67,8 +67,8 @@ router.get('/featured', optionalAuth, async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const requestKey = `featured:${limit}`;
 
-    const articles = await deduplicateRequest(requestKey, async () => {
-      return await prisma.article.findMany({
+    const articlesWithReadCount = await deduplicateRequest(requestKey, async () => {
+      const articles = await prisma.article.findMany({
         where: {
           isFeaturedArticle: true,
           status: 'published'
@@ -100,11 +100,36 @@ router.get('/featured', optionalAuth, async (req, res) => {
           }
         }
       });
+
+      // Get read counts for all articles
+      const articleIds = articles.map(a => a.id);
+      const readCountMap = new Map();
+      
+      if (articleIds.length > 0) {
+        const readCounts = await prisma.userActivity.groupBy({
+          by: ['articleId'],
+          where: {
+            articleId: { in: articleIds }
+          },
+          _count: {
+            articleId: true
+          }
+        });
+
+        readCounts.forEach(item => {
+          readCountMap.set(item.articleId, item._count.articleId);
+        });
+      }
+
+      return articles.map(article => ({
+        ...article,
+        readCount: readCountMap.get(article.id) || 0
+      }));
     });
 
     res.json({
       success: true,
-      data: { articles }
+      data: { articles: articlesWithReadCount }
     });
 
   } catch (error) {
