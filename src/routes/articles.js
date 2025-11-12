@@ -61,6 +61,61 @@ router.get('/trending', optionalAuth, async (req, res) => {
   }
 });
 
+// Get featured articles
+router.get('/featured', optionalAuth, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const requestKey = `featured:${limit}`;
+
+    const articles = await deduplicateRequest(requestKey, async () => {
+      return await prisma.article.findMany({
+        where: {
+          isFeatured: true,
+          status: 'published'
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          category: true,
+          sourceUrl: true,
+          sourceName: true,
+          pointsValue: true,
+          readTimeEstimate: true,
+          isFeatured: true,
+          imageUrl: true,
+          imageData: true,
+          imageType: true,
+          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              role: true
+            }
+          }
+        }
+      });
+    });
+
+    res.json({
+      success: true,
+      data: { articles }
+    });
+
+  } catch (error) {
+    console.error('Get featured articles error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'FEATURED_ARTICLES_FETCH_ERROR',
+      message: 'Failed to fetch featured articles'
+    });
+  }
+});
+
 // Get articles with pagination and filtering
 router.get('/', optionalAuth, async (req, res) => {
   try {
