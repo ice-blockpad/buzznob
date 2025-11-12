@@ -1018,6 +1018,98 @@ router.patch('/articles/:id/trending', authenticateToken, requireAdmin, async (r
 });
 
 // Toggle featured article status (admin only)
+// Update manual read count for an article
+router.patch('/articles/:id/read-count', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { readCount } = req.body;
+
+    if (typeof readCount !== 'number' || readCount < 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'INVALID_DATA',
+        message: 'readCount must be a non-negative number'
+      });
+    }
+
+    const article = await prisma.article.update({
+      where: { id },
+      data: { manualReadCount: readCount },
+      select: { id: true, title: true, manualReadCount: true }
+    });
+
+    res.json({
+      success: true,
+      message: 'Read count updated successfully',
+      data: { article }
+    });
+  } catch (error) {
+    console.error('Update read count error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'UPDATE_READ_COUNT_ERROR',
+      message: 'Failed to update read count'
+    });
+  }
+});
+
+// Reset manual read count to actual count
+router.patch('/articles/:id/read-count/reset', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get actual read count
+    const actualCount = await prisma.userActivity.count({
+      where: { articleId: id }
+    });
+
+    const article = await prisma.article.update({
+      where: { id },
+      data: { manualReadCount: null },
+      select: { id: true, title: true, manualReadCount: true }
+    });
+
+    res.json({
+      success: true,
+      message: 'Read count reset to actual count',
+      data: { 
+        article,
+        actualCount
+      }
+    });
+  } catch (error) {
+    console.error('Reset read count error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'RESET_READ_COUNT_ERROR',
+      message: 'Failed to reset read count'
+    });
+  }
+});
+
+// Get actual read count for an article
+router.get('/articles/:id/read-count/actual', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const actualCount = await prisma.userActivity.count({
+      where: { articleId: id }
+    });
+
+    res.json({
+      success: true,
+      data: { actualCount }
+    });
+  } catch (error) {
+    console.error('Get actual read count error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'GET_READ_COUNT_ERROR',
+      message: 'Failed to get actual read count'
+    });
+  }
+});
+
 router.patch('/articles/:id/featured', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;

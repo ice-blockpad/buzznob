@@ -81,6 +81,7 @@ model Article {
   readTimeEstimate Int?           @map("read_time_estimate")
   isFeatured       Boolean        @default(false) @map("is_featured")
   isFeaturedArticle Boolean       @default(false) @map("is_featured_article")
+  manualReadCount   Int?           @map("manual_read_count")
   imageUrl         String?        @map("image_url")
   imageData        String?        @map("image_data")
   imageType        String?        @map("image_type")
