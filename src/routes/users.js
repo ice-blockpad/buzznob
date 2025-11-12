@@ -1108,4 +1108,65 @@ router.post('/test-mining-notification', authenticateToken, async (req, res) => 
   }
 });
 
+// Test achievement unlocked notification endpoint
+router.post('/test-achievement-notification', authenticateToken, async (req, res) => {
+  try {
+    console.log('🏆 [TEST ACHIEVEMENT NOTIFICATION] Test achievement notification requested by user:', req.user.id);
+    
+    const userId = req.user.id;
+    const pushNotificationService = require('../services/pushNotificationService');
+    
+    // Get user info for the notification
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true, pushToken: true },
+    });
+
+    console.log('🏆 [TEST ACHIEVEMENT NOTIFICATION] User found:', user ? `Yes (${user.username})` : 'No');
+    console.log('🏆 [TEST ACHIEVEMENT NOTIFICATION] Push token exists:', user?.pushToken ? 'Yes' : 'No');
+
+    if (!user || !user.pushToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'NO_PUSH_TOKEN',
+        message: 'No push token registered for this user'
+      });
+    }
+
+    // Simulate achievement data
+    const testAchievementName = 'Test Achievement';
+    const testPoints = 100;
+    
+    console.log('🏆 [TEST ACHIEVEMENT NOTIFICATION] Sending test achievement notification...');
+    const result = await pushNotificationService.sendAchievementUnlockedNotification(
+      userId,
+      testAchievementName,
+      testPoints
+    );
+    
+    console.log('🏆 [TEST ACHIEVEMENT NOTIFICATION] Result:', result.success ? '✅ Success' : '❌ Failed');
+    if (!result.success) {
+      console.error('🏆 [TEST ACHIEVEMENT NOTIFICATION] Error:', result.error);
+      console.error('🏆 [TEST ACHIEVEMENT NOTIFICATION] Expo Error:', JSON.stringify(result.expoError, null, 2));
+    }
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Test achievement notification sent successfully' : (result.error || 'Failed to send test achievement notification'),
+      expoResponse: result.data,
+      error: result.error,
+      expoError: result.expoError,
+    });
+
+  } catch (error) {
+    console.error('❌ [TEST ACHIEVEMENT NOTIFICATION] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'TEST_ACHIEVEMENT_NOTIFICATION_ERROR',
+      message: 'Failed to send test achievement notification',
+      errorDetails: error.message,
+    });
+  }
+});
+
 module.exports = router;

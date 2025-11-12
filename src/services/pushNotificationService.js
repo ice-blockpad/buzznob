@@ -277,12 +277,20 @@ class PushNotificationService {
    */
   async sendAchievementUnlockedNotification(userId, achievementName, points) {
     try {
+      console.log('🏆 [ACHIEVEMENT NOTIFICATION] Starting for user:', userId);
+      console.log('🏆 [ACHIEVEMENT NOTIFICATION] Achievement name:', achievementName);
+      console.log('🏆 [ACHIEVEMENT NOTIFICATION] Points earned:', points);
+      
       const user = await prisma.user.findUnique({
         where: { id: userId },
         select: { pushToken: true, username: true },
       });
 
+      console.log('🏆 [ACHIEVEMENT NOTIFICATION] User found:', user ? `Yes (${user.username})` : 'No');
+      console.log('🏆 [ACHIEVEMENT NOTIFICATION] Push token exists:', user?.pushToken ? 'Yes' : 'No');
+
       if (!user || !user.pushToken) {
+        console.warn('⚠️ [ACHIEVEMENT NOTIFICATION] User not found or no push token registered');
         return {
           success: false,
           message: 'User not found or no push token registered',
@@ -299,9 +307,12 @@ class PushNotificationService {
         },
       };
 
-      return await this.sendNotification(user.pushToken, notification);
+      console.log('🏆 [ACHIEVEMENT NOTIFICATION] Calling sendNotification...');
+      const result = await this.sendNotification(user.pushToken, notification);
+      console.log('🏆 [ACHIEVEMENT NOTIFICATION] Result:', result.success ? '✅ Success' : '❌ Failed');
+      return result;
     } catch (error) {
-      console.error('Error sending achievement unlocked notification:', error);
+      console.error('❌ [ACHIEVEMENT NOTIFICATION] Error sending achievement unlocked notification:', error);
       return {
         success: false,
         error: error.message,
