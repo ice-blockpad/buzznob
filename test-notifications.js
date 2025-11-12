@@ -65,6 +65,12 @@ const testEndpoints = [
     emoji: '🏆',
     description: 'Achievement unlocked notification',
   },
+  {
+    name: 'Remind Inactive Notification',
+    endpoint: '/referrals/test-remind-inactive',
+    emoji: '📢',
+    description: 'Remind inactive referrals to mine',
+  },
 ];
 
 // Helper function to sleep

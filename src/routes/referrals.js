@@ -285,6 +285,271 @@ router.get('/history', authenticateToken, async (req, res) => {
   }
 });
 
+// Remind inactive referrals
+router.post('/remind-inactive', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const pushNotificationService = require('../services/pushNotificationService');
+    
+    // Get user to check last reminder timestamp
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        lastInactiveReminderAt: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'User not found'
+      });
+    }
+
+    // Check cooldown (12 hours = 12 * 60 * 60 * 1000 milliseconds)
+    const twelveHoursInMs = 12 * 60 * 60 * 1000;
+    const now = new Date();
+    const lastReminderAt = user.lastInactiveReminderAt ? new Date(user.lastInactiveReminderAt) : null;
+    
+    if (lastReminderAt && (now - lastReminderAt) < twelveHoursInMs) {
+      const remainingMs = twelveHoursInMs - (now - lastReminderAt);
+      const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
+      const remainingMinutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
+      
+      return res.status(429).json({
+        success: false,
+        error: 'COOLDOWN_ACTIVE',
+        message: `You can remind inactive users again in ${remainingHours}h ${remainingMinutes}m`,
+        remainingMs,
+        remainingHours,
+        remainingMinutes,
+      });
+    }
+
+    // Get all referrals that are currently inactive (not mining)
+    const sixHoursAgo = new Date(now - 6 * 60 * 60 * 1000);
+    
+    const inactiveReferrals = await prisma.user.findMany({
+      where: {
+        referredBy: userId,
+        pushToken: { not: null }, // Only users with push tokens
+      },
+      select: {
+        id: true,
+        pushToken: true,
+        username: true,
+        miningSessions: {
+          where: { isActive: true },
+          orderBy: { startedAt: 'desc' },
+          take: 1,
+          select: {
+            startedAt: true,
+          },
+        },
+      },
+    });
+
+    // Filter to only truly inactive referrals (no active mining session or session older than 6 hours)
+    const trulyInactive = inactiveReferrals.filter(referral => {
+      const latestSession = referral.miningSessions[0];
+      if (!latestSession) return true; // No mining session = inactive
+      return latestSession.startedAt < sixHoursAgo; // Session older than 6 hours = inactive
+    });
+
+    if (trulyInactive.length === 0) {
+      // Update last reminder timestamp even if no inactive users
+      await prisma.user.update({
+        where: { id: userId },
+        data: { lastInactiveReminderAt: now },
+      });
+
+      return res.json({
+        success: true,
+        message: 'No inactive referrals to remind',
+        data: {
+          notifiedCount: 0,
+        },
+      });
+    }
+
+    // Send notifications to all inactive referrals
+    const notification = {
+      title: '⛏️ Time to Mine!',
+      body: 'Your referrer wants you to start mining! Come back and earn $BUZZ!',
+      data: {
+        type: 'remind_mining',
+      },
+    };
+
+    let notifiedCount = 0;
+    let failedCount = 0;
+
+    for (const referral of trulyInactive) {
+      try {
+        const result = await pushNotificationService.sendNotification(referral.pushToken, notification);
+        if (result.success) {
+          notifiedCount++;
+        } else {
+          failedCount++;
+          console.error(`Failed to notify referral ${referral.id}:`, result.error);
+        }
+      } catch (error) {
+        failedCount++;
+        console.error(`Error notifying referral ${referral.id}:`, error);
+      }
+    }
+
+    // Update last reminder timestamp
+    await prisma.user.update({
+      where: { id: userId },
+      data: { lastInactiveReminderAt: now },
+    });
+
+    console.log(`📢 [REMIND INACTIVE] User ${userId} reminded ${notifiedCount} inactive referrals`);
+
+    res.json({
+      success: true,
+      message: `Reminders sent to ${notifiedCount} inactive referral${notifiedCount !== 1 ? 's' : ''}`,
+      data: {
+        notifiedCount,
+        failedCount,
+        totalInactive: trulyInactive.length,
+      },
+    });
+
+  } catch (error) {
+    console.error('Remind inactive referrals error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'REMIND_INACTIVE_ERROR',
+      message: 'Failed to send reminders to inactive referrals',
+      errorDetails: error.message,
+    });
+  }
+});
+
+// Get reminder cooldown status
+router.get('/remind-inactive-status', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        lastInactiveReminderAt: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'User not found'
+      });
+    }
+
+    const twelveHoursInMs = 12 * 60 * 60 * 1000;
+    const now = new Date();
+    const lastReminderAt = user.lastInactiveReminderAt ? new Date(user.lastInactiveReminderAt) : null;
+    
+    let canRemind = true;
+    let remainingMs = 0;
+    let remainingHours = 0;
+    let remainingMinutes = 0;
+
+    if (lastReminderAt && (now - lastReminderAt) < twelveHoursInMs) {
+      canRemind = false;
+      remainingMs = twelveHoursInMs - (now - lastReminderAt);
+      remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
+      remainingMinutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
+    }
+
+    res.json({
+      success: true,
+      data: {
+        canRemind,
+        remainingMs,
+        remainingHours,
+        remainingMinutes,
+        lastReminderAt: lastReminderAt ? lastReminderAt.toISOString() : null,
+      },
+    });
+
+  } catch (error) {
+    console.error('Get remind inactive status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'REMIND_STATUS_ERROR',
+      message: 'Failed to get reminder status',
+      errorDetails: error.message,
+    });
+  }
+});
+
+// Test remind inactive endpoint (for testing purposes)
+router.post('/test-remind-inactive', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const pushNotificationService = require('../services/pushNotificationService');
+    
+    console.log('📢 [TEST REMIND INACTIVE] Test remind inactive requested by user:', userId);
+    
+    // Get user's push token to send a test notification to themselves
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { pushToken: true, username: true },
+    });
+
+    console.log('📢 [TEST REMIND INACTIVE] User found:', user ? `Yes (${user.username})` : 'No');
+    console.log('📢 [TEST REMIND INACTIVE] Push token exists:', user?.pushToken ? 'Yes' : 'No');
+
+    if (!user || !user.pushToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'NO_PUSH_TOKEN',
+        message: 'No push token registered for this user'
+      });
+    }
+
+    // Send test notification with the same format as the actual remind inactive
+    const notification = {
+      title: '⛏️ Time to Mine!',
+      body: 'Your referrer wants you to start mining! Come back and earn $BUZZ!',
+      data: {
+        type: 'remind_mining',
+      },
+    };
+
+    console.log('📢 [TEST REMIND INACTIVE] Sending test remind inactive notification...');
+    const result = await pushNotificationService.sendNotification(user.pushToken, notification);
+    
+    console.log('📢 [TEST REMIND INACTIVE] Result:', result.success ? '✅ Success' : '❌ Failed');
+    if (!result.success) {
+      console.error('📢 [TEST REMIND INACTIVE] Error:', result.error);
+      console.error('📢 [TEST REMIND INACTIVE] Expo Error:', JSON.stringify(result.expoError, null, 2));
+    }
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Test remind inactive notification sent successfully' : (result.error || 'Failed to send test remind inactive notification'),
+      expoResponse: result.data,
+      error: result.error,
+      expoError: result.expoError,
+    });
+
+  } catch (error) {
+    console.error('❌ [TEST REMIND INACTIVE] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'TEST_REMIND_INACTIVE_ERROR',
+      message: 'Failed to send test remind inactive notification',
+      errorDetails: error.message,
+    });
+  }
+});
+
 // Use error handler middleware
 router.use(errorHandler);
 

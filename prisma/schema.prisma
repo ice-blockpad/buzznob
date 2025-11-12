@@ -38,6 +38,7 @@ model User {
   avatarType       String?          @map("avatar_type")
   miningBalance    Float            @default(0) @map("mining_balance")
   pushToken        String?          @map("push_token")
+  lastInactiveReminderAt DateTime? @map("last_inactive_reminder_at")
   authoredArticles Article[]        @relation("ArticleAuthor")
   reviewedArticles Article[]        @relation("ArticleReviewer")
   dailyRewards     DailyReward[]
