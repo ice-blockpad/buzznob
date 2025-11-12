@@ -1169,4 +1169,57 @@ router.post('/test-achievement-notification', authenticateToken, async (req, res
   }
 });
 
+// Test daily claim notification endpoint
+router.post('/test-daily-claim-notification', authenticateToken, async (req, res) => {
+  try {
+    console.log('🎁 [TEST DAILY CLAIM NOTIFICATION] Test daily claim notification requested by user:', req.user.id);
+    
+    const userId = req.user.id;
+    const pushNotificationService = require('../services/pushNotificationService');
+    
+    // Get user info for the notification
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true, pushToken: true },
+    });
+
+    console.log('🎁 [TEST DAILY CLAIM NOTIFICATION] User found:', user ? `Yes (${user.username})` : 'No');
+    console.log('🎁 [TEST DAILY CLAIM NOTIFICATION] Push token exists:', user?.pushToken ? 'Yes' : 'No');
+
+    if (!user || !user.pushToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'NO_PUSH_TOKEN',
+        message: 'No push token registered for this user'
+      });
+    }
+    
+    console.log('🎁 [TEST DAILY CLAIM NOTIFICATION] Sending test daily claim notification...');
+    const result = await pushNotificationService.sendDailyClaimNotification(userId);
+    
+    console.log('🎁 [TEST DAILY CLAIM NOTIFICATION] Result:', result.success ? '✅ Success' : '❌ Failed');
+    if (!result.success) {
+      console.error('🎁 [TEST DAILY CLAIM NOTIFICATION] Error:', result.error);
+      console.error('🎁 [TEST DAILY CLAIM NOTIFICATION] Expo Error:', JSON.stringify(result.expoError, null, 2));
+    }
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Test daily claim notification sent successfully' : (result.error || 'Failed to send test daily claim notification'),
+      expoResponse: result.data,
+      error: result.error,
+      expoError: result.expoError,
+    });
+
+  } catch (error) {
+    console.error('❌ [TEST DAILY CLAIM NOTIFICATION] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'TEST_DAILY_CLAIM_NOTIFICATION_ERROR',
+      message: 'Failed to send test daily claim notification',
+      errorDetails: error.message,
+    });
+  }
+});
+
 module.exports = router;
