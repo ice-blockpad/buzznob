@@ -996,4 +996,63 @@ router.post('/test-notification', authenticateToken, async (req, res) => {
   }
 });
 
+// Test referral notification endpoint
+router.post('/test-referral-notification', authenticateToken, async (req, res) => {
+  try {
+    console.log('👥 [TEST REFERRAL NOTIFICATION] Test referral notification requested by user:', req.user.id);
+    
+    const userId = req.user.id;
+    const pushNotificationService = require('../services/pushNotificationService');
+    
+    // Get user info for the notification
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true, displayName: true, pushToken: true },
+    });
+
+    console.log('👥 [TEST REFERRAL NOTIFICATION] User found:', user ? `Yes (${user.username})` : 'No');
+    console.log('👥 [TEST REFERRAL NOTIFICATION] Push token exists:', user?.pushToken ? 'Yes' : 'No');
+
+    if (!user || !user.pushToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'NO_PUSH_TOKEN',
+        message: 'No push token registered for this user'
+      });
+    }
+
+    // Simulate a referral name (using a test name)
+    const testReferralName = 'Test User';
+    
+    console.log('👥 [TEST REFERRAL NOTIFICATION] Sending test referral notification...');
+    const result = await pushNotificationService.sendNewReferralNotification(
+      userId,
+      testReferralName
+    );
+    
+    console.log('👥 [TEST REFERRAL NOTIFICATION] Result:', result.success ? '✅ Success' : '❌ Failed');
+    if (!result.success) {
+      console.error('👥 [TEST REFERRAL NOTIFICATION] Error:', result.error);
+      console.error('👥 [TEST REFERRAL NOTIFICATION] Expo Error:', JSON.stringify(result.expoError, null, 2));
+    }
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Test referral notification sent successfully' : (result.error || 'Failed to send test referral notification'),
+      expoResponse: result.data,
+      error: result.error,
+      expoError: result.expoError,
+    });
+
+  } catch (error) {
+    console.error('❌ [TEST REFERRAL NOTIFICATION] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'TEST_REFERRAL_NOTIFICATION_ERROR',
+      message: 'Failed to send test referral notification',
+      errorDetails: error.message,
+    });
+  }
+});
+
 module.exports = router;
