@@ -42,6 +42,12 @@ const testEndpoints = [
     description: 'Basic test notification',
   },
   {
+    name: 'Daily Claim Notification',
+    endpoint: '/users/test-daily-claim-notification',
+    emoji: '🎁',
+    description: 'Daily reward ready notification',
+  },
+  {
     name: 'Referral Notification',
     endpoint: '/users/test-referral-notification',
     emoji: '👥',
