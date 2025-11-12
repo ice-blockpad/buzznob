@@ -1055,4 +1055,57 @@ router.post('/test-referral-notification', authenticateToken, async (req, res) =
   }
 });
 
+// Test mining completion notification endpoint
+router.post('/test-mining-notification', authenticateToken, async (req, res) => {
+  try {
+    console.log('⛏️ [TEST MINING NOTIFICATION] Test mining notification requested by user:', req.user.id);
+    
+    const userId = req.user.id;
+    const pushNotificationService = require('../services/pushNotificationService');
+    
+    // Get user info for the notification
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { username: true, pushToken: true },
+    });
+
+    console.log('⛏️ [TEST MINING NOTIFICATION] User found:', user ? `Yes (${user.username})` : 'No');
+    console.log('⛏️ [TEST MINING NOTIFICATION] Push token exists:', user?.pushToken ? 'Yes' : 'No');
+
+    if (!user || !user.pushToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'NO_PUSH_TOKEN',
+        message: 'No push token registered for this user'
+      });
+    }
+    
+    console.log('⛏️ [TEST MINING NOTIFICATION] Sending test mining notification...');
+    const result = await pushNotificationService.sendMiningCompleteNotification(userId);
+    
+    console.log('⛏️ [TEST MINING NOTIFICATION] Result:', result.success ? '✅ Success' : '❌ Failed');
+    if (!result.success) {
+      console.error('⛏️ [TEST MINING NOTIFICATION] Error:', result.error);
+      console.error('⛏️ [TEST MINING NOTIFICATION] Expo Error:', JSON.stringify(result.expoError, null, 2));
+    }
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Test mining notification sent successfully' : (result.error || 'Failed to send test mining notification'),
+      expoResponse: result.data,
+      error: result.error,
+      expoError: result.expoError,
+    });
+
+  } catch (error) {
+    console.error('❌ [TEST MINING NOTIFICATION] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'TEST_MINING_NOTIFICATION_ERROR',
+      message: 'Failed to send test mining notification',
+      errorDetails: error.message,
+    });
+  }
+});
+
 module.exports = router;
