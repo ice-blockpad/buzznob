@@ -164,10 +164,26 @@ router.get('/', optionalAuth, async (req, res) => {
 
     const totalCount = await prisma.article.count({ where });
 
+    // Get read counts for all articles
+    const articleIds = articles.map(a => a.id);
+    const readCounts = await prisma.userActivity.groupBy({
+      by: ['articleId'],
+      where: {
+        articleId: { in: articleIds }
+      },
+      _count: {
+        articleId: true
+      }
+    });
+
+    const readCountMap = new Map();
+    readCounts.forEach(item => {
+      readCountMap.set(item.articleId, item._count.articleId);
+    });
+
     // Check if user has read each article (if authenticated)
     let articlesWithReadStatus = articles;
     if (req.user && req.user.id) {
-      const articleIds = articles.map(a => a.id);
       const userActivities = await prisma.userActivity.findMany({
         where: {
           userId: req.user.id,
@@ -181,13 +197,15 @@ router.get('/', optionalAuth, async (req, res) => {
       const readArticleIds = new Set(userActivities.map(activity => activity.articleId));
       articlesWithReadStatus = articles.map(article => ({
         ...article,
-        isRead: readArticleIds.has(article.id)
+        isRead: readArticleIds.has(article.id),
+        readCount: readCountMap.get(article.id) || 0
       }));
     } else {
       // If not authenticated, all articles are unread
       articlesWithReadStatus = articles.map(article => ({
         ...article,
-        isRead: false
+        isRead: false,
+        readCount: readCountMap.get(article.id) || 0
       }));
     }
 
@@ -274,10 +292,26 @@ router.get('/search', optionalAuth, async (req, res) => {
 
     const totalCount = await prisma.article.count({ where });
 
+    // Get read counts for all articles
+    const articleIds = articles.map(a => a.id);
+    const readCounts = await prisma.userActivity.groupBy({
+      by: ['articleId'],
+      where: {
+        articleId: { in: articleIds }
+      },
+      _count: {
+        articleId: true
+      }
+    });
+
+    const readCountMap = new Map();
+    readCounts.forEach(item => {
+      readCountMap.set(item.articleId, item._count.articleId);
+    });
+
     // Check if user has read each article (if authenticated)
     let articlesWithReadStatus = articles;
     if (req.user && req.user.id) {
-      const articleIds = articles.map(a => a.id);
       const userActivities = await prisma.userActivity.findMany({
         where: {
           userId: req.user.id,
@@ -291,13 +325,15 @@ router.get('/search', optionalAuth, async (req, res) => {
       const readArticleIds = new Set(userActivities.map(activity => activity.articleId));
       articlesWithReadStatus = articles.map(article => ({
         ...article,
-        isRead: readArticleIds.has(article.id)
+        isRead: readArticleIds.has(article.id),
+        readCount: readCountMap.get(article.id) || 0
       }));
     } else {
       // If not authenticated, all articles are unread
       articlesWithReadStatus = articles.map(article => ({
         ...article,
-        isRead: false
+        isRead: false,
+        readCount: readCountMap.get(article.id) || 0
       }));
     }
 
