@@ -1017,6 +1017,50 @@ router.patch('/articles/:id/trending', authenticateToken, requireAdmin, async (r
   }
 });
 
+// Toggle featured article status (admin only)
+router.patch('/articles/:id/featured', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isFeaturedArticle } = req.body;
+
+    if (typeof isFeaturedArticle !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        error: 'INVALID_DATA',
+        message: 'isFeaturedArticle must be a boolean value'
+      });
+    }
+
+    const article = await prisma.article.update({
+      where: { id },
+      data: { isFeaturedArticle }
+    });
+
+    res.json({
+      success: true,
+      message: `Article ${isFeaturedArticle ? 'set as featured' : 'removed from featured'} successfully`,
+      data: { article }
+    });
+
+  } catch (error) {
+    console.error('Toggle featured article status error:', error);
+    
+    if (error.code === 'P2025') {
+      return res.status(404).json({
+        success: false,
+        error: 'ARTICLE_NOT_FOUND',
+        message: 'Article not found'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'FEATURED_TOGGLE_ERROR',
+      message: 'Failed to toggle featured article status'
+    });
+  }
+});
+
 // Delete article (admin only)
 router.delete('/articles/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
