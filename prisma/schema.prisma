@@ -304,6 +304,17 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+model CronLock {
+  id          String   @id @default(cuid()) @db.VarChar
+  lockKey     String   @unique @map("lock_key")
+  instanceId  String   @map("instance_id") @db.VarChar
+  lockedAt    DateTime @default(now()) @map("locked_at")
+  expiresAt   DateTime @map("expires_at")
+  
+  @@index([lockKey, expiresAt])
+  @@map("cron_locks")
+}
+
 model UserSession {
   id           String   @id @default(cuid()) @db.VarChar
   userId       String   @map("user_id") @db.VarChar

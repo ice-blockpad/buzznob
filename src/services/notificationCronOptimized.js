@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { prisma } = require('../config/database');
 const pushNotificationService = require('./pushNotificationService');
+const distributedLock = require('./distributedLock');
 
 /**
  * Optimized Notification Cron Jobs for Scale (5M+ users)
@@ -127,9 +128,11 @@ class NotificationCronOptimized {
    */
   startMiningCompletionCheck() {
     const job = cron.schedule('*/5 * * * *', async () => {
-      try {
-        // Find completed but unclaimed mining sessions from last 5 minutes
-        const completedSessions = await prisma.miningSession.findMany({
+      // Use distributed lock to prevent duplicate execution in PM2 cluster mode
+      await distributedLock.withLock('mining_completion_check', async () => {
+        try {
+          // Find completed but unclaimed mining sessions from last 5 minutes
+          const completedSessions = await prisma.miningSession.findMany({
           where: {
             isCompleted: true,
             isClaimed: false,
@@ -170,10 +173,11 @@ class NotificationCronOptimized {
         // Send in batches with rate limiting
         await this.sendBatchWithRateLimit(pushTokens, notification);
         
-        console.log(`✅ Sent ${pushTokens.length} mining completion notifications`);
-      } catch (error) {
-        console.error('Error in mining completion check cron:', error);
-      }
+          console.log(`✅ Sent ${pushTokens.length} mining completion notifications`);
+        } catch (error) {
+          console.error('Error in mining completion check cron:', error);
+        }
+      }, 300); // 5 minute TTL (matches cron interval)
     });
 
     this.jobs.push(job);
@@ -186,10 +190,13 @@ class NotificationCronOptimized {
    */
   startDailyClaimNotifications() {
     const job = cron.schedule('0 0 * * *', async () => {
-      const startTime = Date.now();
-      console.log('🚀 Starting daily claim notifications...');
+      // Use distributed lock to prevent duplicate execution in PM2 cluster mode
+      // TTL of 1 hour to ensure lock is held for entire execution
+      await distributedLock.withLock('daily_claim_notification', async () => {
+        const startTime = Date.now();
+        console.log('🚀 Starting daily claim notifications...');
 
-      try {
+        try {
         // First, get total count for progress tracking
         const totalUsers = await prisma.user.count({
           where: {
@@ -216,10 +223,11 @@ class NotificationCronOptimized {
         console.log(`✅ Daily claim notifications complete!`);
         console.log(`   Processed: ${totalProcessed.toLocaleString()} users`);
         console.log(`   Duration: ${duration} minutes`);
-        console.log(`   Rate: ${(totalProcessed / (Date.now() - startTime) * 1000).toFixed(0)} users/second`);
-      } catch (error) {
-        console.error('Error in daily claim notification cron:', error);
-      }
+          console.log(`   Rate: ${(totalProcessed / (Date.now() - startTime) * 1000).toFixed(0)} users/second`);
+        } catch (error) {
+          console.error('Error in daily claim notification cron:', error);
+        }
+      }, 3600); // 1 hour TTL to ensure lock is held for entire execution
     });
 
     this.jobs.push(job);
