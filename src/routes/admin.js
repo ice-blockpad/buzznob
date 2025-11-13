@@ -2,6 +2,7 @@ const express = require('express');
 const { prisma } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
+const { deduplicateRequest, clearCachePattern } = require('../middleware/deduplication');
 const upload = require('../middleware/upload');
 
 const router = express.Router();
@@ -1038,6 +1039,10 @@ router.patch('/articles/:id/read-count', authenticateToken, requireAdmin, async 
       select: { id: true, title: true, manualReadCount: true }
     });
 
+    // Clear pending requests for trending and featured articles that might include this article
+    clearCachePattern('trending:');
+    clearCachePattern('featured:');
+
     res.json({
       success: true,
       message: 'Read count updated successfully',
@@ -1068,6 +1073,10 @@ router.patch('/articles/:id/read-count/reset', authenticateToken, requireAdmin, 
       data: { manualReadCount: null },
       select: { id: true, title: true, manualReadCount: true }
     });
+
+    // Clear pending requests for trending and featured articles that might include this article
+    clearCachePattern('trending:');
+    clearCachePattern('featured:');
 
     res.json({
       success: true,

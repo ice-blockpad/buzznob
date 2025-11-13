@@ -30,6 +30,7 @@ router.get('/trending', optionalAuth, async (req, res) => {
           pointsValue: true,
           readTimeEstimate: true,
           isFeatured: true,
+          manualReadCount: true,
           imageUrl: true,
         imageData: true,
         imageType: true,
@@ -65,10 +66,14 @@ router.get('/trending', optionalAuth, async (req, res) => {
         });
       }
 
-      return articles.map(article => ({
-        ...article,
-        readCount: readCountMap.get(article.id) || 0
-      }));
+      return articles.map(article => {
+        const actualCount = readCountMap.get(article.id) || 0;
+        const readCount = article.manualReadCount !== null ? article.manualReadCount : actualCount;
+        return {
+          ...article,
+          readCount
+        };
+      });
     });
 
     res.json({
@@ -111,6 +116,7 @@ router.get('/featured', optionalAuth, async (req, res) => {
           readTimeEstimate: true,
           isFeatured: true,
           isFeaturedArticle: true,
+          manualReadCount: true,
           imageUrl: true,
           imageData: true,
           imageType: true,
@@ -146,10 +152,14 @@ router.get('/featured', optionalAuth, async (req, res) => {
         });
       }
 
-      return articles.map(article => ({
-        ...article,
-        readCount: readCountMap.get(article.id) || 0
-      }));
+      return articles.map(article => {
+        const actualCount = readCountMap.get(article.id) || 0;
+        const readCount = article.manualReadCount !== null ? article.manualReadCount : actualCount;
+        return {
+          ...article,
+          readCount
+        };
+      });
     });
 
     res.json({
@@ -197,6 +207,7 @@ router.get('/', optionalAuth, async (req, res) => {
         pointsValue: true,
         readTimeEstimate: true,
         isFeatured: true,
+        manualReadCount: true,
         imageUrl: true,
         imageData: true,
         imageType: true,
@@ -245,18 +256,26 @@ router.get('/', optionalAuth, async (req, res) => {
       });
       
       const readArticleIds = new Set(userActivities.map(activity => activity.articleId));
-      articlesWithReadStatus = articles.map(article => ({
-        ...article,
-        isRead: readArticleIds.has(article.id),
-        readCount: readCountMap.get(article.id) || 0
-      }));
+      articlesWithReadStatus = articles.map(article => {
+        const actualCount = readCountMap.get(article.id) || 0;
+        const readCount = article.manualReadCount !== null ? article.manualReadCount : actualCount;
+        return {
+          ...article,
+          isRead: readArticleIds.has(article.id),
+          readCount
+        };
+      });
     } else {
       // If not authenticated, all articles are unread
-      articlesWithReadStatus = articles.map(article => ({
-        ...article,
-        isRead: false,
-        readCount: readCountMap.get(article.id) || 0
-      }));
+      articlesWithReadStatus = articles.map(article => {
+        const actualCount = readCountMap.get(article.id) || 0;
+        const readCount = article.manualReadCount !== null ? article.manualReadCount : actualCount;
+        return {
+          ...article,
+          isRead: false,
+          readCount
+        };
+      });
     }
 
     res.json({
@@ -325,6 +344,7 @@ router.get('/search', optionalAuth, async (req, res) => {
         pointsValue: true,
         readTimeEstimate: true,
         isFeatured: true,
+        manualReadCount: true,
         imageUrl: true,
         imageData: true,
         imageType: true,
@@ -373,18 +393,26 @@ router.get('/search', optionalAuth, async (req, res) => {
       });
       
       const readArticleIds = new Set(userActivities.map(activity => activity.articleId));
-      articlesWithReadStatus = articles.map(article => ({
-        ...article,
-        isRead: readArticleIds.has(article.id),
-        readCount: readCountMap.get(article.id) || 0
-      }));
+      articlesWithReadStatus = articles.map(article => {
+        const actualCount = readCountMap.get(article.id) || 0;
+        const readCount = article.manualReadCount !== null ? article.manualReadCount : actualCount;
+        return {
+          ...article,
+          isRead: readArticleIds.has(article.id),
+          readCount
+        };
+      });
     } else {
       // If not authenticated, all articles are unread
-      articlesWithReadStatus = articles.map(article => ({
-        ...article,
-        isRead: false,
-        readCount: readCountMap.get(article.id) || 0
-      }));
+      articlesWithReadStatus = articles.map(article => {
+        const actualCount = readCountMap.get(article.id) || 0;
+        const readCount = article.manualReadCount !== null ? article.manualReadCount : actualCount;
+        return {
+          ...article,
+          isRead: false,
+          readCount
+        };
+      });
     }
 
     res.json({

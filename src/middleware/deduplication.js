@@ -14,4 +14,22 @@ const deduplicateRequest = (key, requestFn) => {
   return promise;
 };
 
-module.exports = { deduplicateRequest };
+// Clear pending requests for a specific key (useful when data changes)
+const clearCache = (key) => {
+  if (pendingRequests.has(key)) {
+    pendingRequests.delete(key);
+  }
+};
+
+// Clear all pending requests matching a pattern
+const clearCachePattern = (pattern) => {
+  const keysToDelete = [];
+  for (const key of pendingRequests.keys()) {
+    if (key.includes(pattern)) {
+      keysToDelete.push(key);
+    }
+  }
+  keysToDelete.forEach(key => pendingRequests.delete(key));
+};
+
+module.exports = { deduplicateRequest, clearCache, clearCachePattern };
