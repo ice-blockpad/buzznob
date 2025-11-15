@@ -193,36 +193,36 @@ class NotificationCronOptimized {
       // Use distributed lock to prevent duplicate execution in PM2 cluster mode
       // TTL of 1 hour to ensure lock is held for entire execution
       await distributedLock.withLock('daily_claim_notification', async () => {
-        const startTime = Date.now();
-        console.log('🚀 Starting daily claim notifications...');
-
         try {
-        // First, get total count for progress tracking
-        const totalUsers = await prisma.user.count({
-          where: {
-            pushToken: { not: null },
-            isActive: true,
-          },
-        });
+          const startTime = Date.now();
+          console.log('🚀 Starting daily claim notifications...');
 
-        console.log(`📊 Total users to notify: ${totalUsers.toLocaleString()}`);
+          // First, get total count for progress tracking
+          const totalUsers = await prisma.user.count({
+            where: {
+              pushToken: { not: null },
+              isActive: true,
+            },
+          });
 
-        const notification = {
-          title: '🎁 Daily Reward Available!',
-          body: 'Your daily reward is ready to claim!',
-          data: { type: 'daily_claim' },
-        };
+          console.log(`📊 Total users to notify: ${totalUsers.toLocaleString()}`);
 
-        // Process in paginated batches
-        const totalProcessed = await this.processUsersInBatches(
-          null, // Not using function, using direct notification
-          notification
-        );
+          const notification = {
+            title: '🎁 Daily Reward Available!',
+            body: 'Your daily reward is ready to claim!',
+            data: { type: 'daily_claim' },
+          };
 
-        const duration = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
-        console.log(`✅ Daily claim notifications complete!`);
-        console.log(`   Processed: ${totalProcessed.toLocaleString()} users`);
-        console.log(`   Duration: ${duration} minutes`);
+          // Process in paginated batches
+          const totalProcessed = await this.processUsersInBatches(
+            null, // Not using function, using direct notification
+            notification
+          );
+
+          const duration = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
+          console.log(`✅ Daily claim notifications complete!`);
+          console.log(`   Processed: ${totalProcessed.toLocaleString()} users`);
+          console.log(`   Duration: ${duration} minutes`);
           console.log(`   Rate: ${(totalProcessed / (Date.now() - startTime) * 1000).toFixed(0)} users/second`);
         } catch (error) {
           console.error('Error in daily claim notification cron:', error);

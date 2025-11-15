@@ -30,43 +30,46 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
     const role = req.query.role;
     const skip = (page - 1) * limit;
 
-    const where = {};
-    if (search) {
-      where.OR = [
-        { username: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } },
-        { displayName: { contains: search, mode: 'insensitive' } }
-      ];
-    }
-    if (role) where.role = role;
+    // Build cache key from query params
+    const cacheKey = `admin:users:${page}:${limit}:${search || ''}:${role || ''}`;
 
-    const users = await prisma.user.findMany({
-      where,
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        displayName: true,
-        avatarUrl: true,
-        points: true,
-        streakCount: true,
-        role: true,
-        isActive: true,
-        isVerified: true,
-        kycStatus: true,
-        createdAt: true,
-        lastLogin: true
-      },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit
-    });
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const result = await cacheService.getOrSet(cacheKey, async () => {
+      const where = {};
+      if (search) {
+        where.OR = [
+          { username: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { displayName: { contains: search, mode: 'insensitive' } }
+        ];
+      }
+      if (role) where.role = role;
 
-    const totalCount = await prisma.user.count({ where });
+      const users = await prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          displayName: true,
+          avatarUrl: true,
+          points: true,
+          streakCount: true,
+          role: true,
+          isActive: true,
+          isVerified: true,
+          kycStatus: true,
+          createdAt: true,
+          lastLogin: true
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit
+      });
 
-    res.json({
-      success: true,
-      data: {
+      const totalCount = await prisma.user.count({ where });
+
+      return {
         users,
         pagination: {
           page,
@@ -74,7 +77,12 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
           total: totalCount,
           pages: Math.ceil(totalCount / limit)
         }
-      }
+      };
+    }, 300); // 5 minutes TTL
+
+    res.json({
+      success: true,
+      data: result
     });
 
   } catch (error) {
@@ -92,44 +100,65 @@ router.get('/users/:userId', authenticateToken, requireAdmin, async (req, res) =
   try {
     const { userId } = req.params;
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        activities: {
-          include: {
-            article: {
-              select: {
-                id: true,
-                title: true,
-                category: true
-              }
-            }
-          },
-          orderBy: { completedAt: 'desc' },
-          take: 10
-        },
-        rewards: {
-          orderBy: { createdAt: 'desc' },
-          take: 10
-        },
-        userBadges: {
-          include: {
-            badge: true
-          },
-          orderBy: { earnedAt: 'desc' }
-        },
-        miningClaims: {
-          orderBy: { createdAt: 'desc' },
-          take: 10
-        },
-        kycSubmissions: {
-          orderBy: { createdAt: 'desc' },
-          take: 1
-        }
-      }
-    });
+    const cacheKey = `admin:user:${userId}`;
 
-    if (!user) {
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const result = await cacheService.getOrSet(cacheKey, async () => {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          activities: {
+            include: {
+              article: {
+                select: {
+                  id: true,
+                  title: true,
+                  category: true
+                }
+              }
+            },
+            orderBy: { completedAt: 'desc' },
+            take: 10
+          },
+          rewards: {
+            orderBy: { createdAt: 'desc' },
+            take: 10
+          },
+          userBadges: {
+            include: {
+              badge: true
+            },
+            orderBy: { earnedAt: 'desc' }
+          },
+          miningClaims: {
+            orderBy: { createdAt: 'desc' },
+            take: 10
+          },
+          kycSubmissions: {
+            orderBy: { createdAt: 'desc' },
+            take: 1
+          }
+        }
+      });
+
+      if (!user) {
+        return null; // Return null to indicate not found
+      }
+
+      // Get referral stats
+      const referralCount = await prisma.user.count({
+        where: { referredBy: userId }
+      });
+
+      return {
+        user: {
+          ...user,
+          referralCount
+        }
+      };
+    }, 300); // 5 minutes TTL
+
+    if (!result) {
       return res.status(404).json({
         success: false,
         error: 'USER_NOT_FOUND',
@@ -137,19 +166,9 @@ router.get('/users/:userId', authenticateToken, requireAdmin, async (req, res) =
       });
     }
 
-    // Get referral stats
-    const referralCount = await prisma.user.count({
-      where: { referredBy: userId }
-    });
-
     res.json({
       success: true,
-      data: {
-        user: {
-          ...user,
-          referralCount
-        }
-      }
+      data: result
     });
 
   } catch (error) {
@@ -204,6 +223,29 @@ router.put('/users/:userId', authenticateToken, requireAdmin, async (req, res) =
         kycStatus: true,
         isVerified: true,
         updatedAt: true
+      }
+    });
+
+    // Write-through cache: Refresh user caches and invalidate admin user list cache
+    setImmediate(async () => {
+      try {
+        const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+        
+        // If points changed, refresh user profile and leaderboard
+        if (points !== undefined) {
+          await refreshUserAndLeaderboardCaches(userId);
+        } else {
+          // Just refresh user profile cache
+          await cacheService.delete(`admin:user:${userId}`);
+          await cacheService.delete(`profile:${userId}`);
+        }
+        
+        // Invalidate admin user list cache (any page could be affected)
+        await cacheService.deletePattern('admin:users:*');
+        // Invalidate admin stats cache (user count may have changed)
+        await cacheService.delete('admin:stats');
+      } catch (err) {
+        console.error('Error refreshing caches after user update:', err);
       }
     });
 
@@ -288,6 +330,29 @@ router.delete('/users/:userId', authenticateToken, requireAdmin, async (req, res
       await tx.user.delete({
         where: { id: userId }
       });
+    });
+
+    // Write-through cache: Invalidate all user-related caches
+    setImmediate(async () => {
+      try {
+        // Invalidate user profile caches
+        await cacheService.delete(`admin:user:${userId}`);
+        await cacheService.delete(`profile:${userId}`);
+        await cacheService.delete(`user:badges:${userId}`);
+        await cacheService.delete(`user:achievements:${userId}`);
+        await cacheService.delete(`achievements:${userId}`);
+        await cacheService.delete(`admin:achievements:${userId}`);
+        
+        // Invalidate admin user list cache
+        await cacheService.deletePattern('admin:users:*');
+        
+        // Invalidate leaderboard caches (user deleted, rankings changed)
+        await cacheService.deletePattern('leaderboard:*');
+        // Invalidate admin stats cache (user count changed)
+        await cacheService.delete('admin:stats');
+      } catch (err) {
+        console.error('Error invalidating caches after user delete:', err);
+      }
     });
 
     res.json({
@@ -521,57 +586,64 @@ router.patch('/users/:userId/achievements/:achievementId', authenticateToken, re
 // Get system statistics (admin)
 router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    // Get total users
-    const totalUsers = await prisma.user.count();
-    
-    // Get active users by time period
-    const now = new Date();
-    const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000);
-    const oneWeekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
-    const oneMonthAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
-    
-    const activeToday = await prisma.user.count({
-      where: {
-        lastLogin: {
-          gte: oneDayAgo
-        }
-      }
-    });
-    
-    const activeLastWeek = await prisma.user.count({
-      where: {
-        lastLogin: {
-          gte: oneWeekAgo
-        }
-      }
-    });
-    
-    const activeLastMonth = await prisma.user.count({
-      where: {
-        lastLogin: {
-          gte: oneMonthAgo
-        }
-      }
-    });
-    
-    // Get total articles
-    const totalArticles = await prisma.article.count();
-    
-    // Pending reviews: count articles awaiting review
-    const pendingReviews = await prisma.article.count({
-      where: { status: 'pending' }
-    });
+    const cacheKey = 'admin:stats';
 
-    res.json({
-      success: true,
-      data: {
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const stats = await cacheService.getOrSet(cacheKey, async () => {
+      // Get total users
+      const totalUsers = await prisma.user.count();
+      
+      // Get active users by time period
+      const now = new Date();
+      const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000);
+      const oneWeekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+      const oneMonthAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
+      
+      const activeToday = await prisma.user.count({
+        where: {
+          lastLogin: {
+            gte: oneDayAgo
+          }
+        }
+      });
+      
+      const activeLastWeek = await prisma.user.count({
+        where: {
+          lastLogin: {
+            gte: oneWeekAgo
+          }
+        }
+      });
+      
+      const activeLastMonth = await prisma.user.count({
+        where: {
+          lastLogin: {
+            gte: oneMonthAgo
+          }
+        }
+      });
+      
+      // Get total articles
+      const totalArticles = await prisma.article.count();
+      
+      // Pending reviews: count articles awaiting review
+      const pendingReviews = await prisma.article.count({
+        where: { status: 'pending' }
+      });
+
+      return {
         totalUsers,
         activeToday,
         activeLastWeek,
         activeLastMonth,
         totalArticles,
         pendingReviews
-      }
+      };
+    }, 300); // 5 minutes TTL (stats change frequently)
+
+    res.json({
+      success: true,
+      data: stats
     });
 
   } catch (error) {
@@ -624,6 +696,16 @@ router.post('/rewards', authenticateToken, requireAdmin, async (req, res) => {
       }
     });
 
+    // Write-through cache: Invalidate reward list cache
+    setImmediate(async () => {
+      try {
+        await cacheService.deletePattern('rewards:*');
+        await cacheService.deletePattern('availableRewards:*');
+      } catch (err) {
+        console.error('Error invalidating reward caches after create:', err);
+      }
+    });
+
     res.json({
       success: true,
       message: 'Reward created successfully',
@@ -651,6 +733,17 @@ router.put('/rewards/:rewardId', authenticateToken, requireAdmin, async (req, re
       data: updateData
     });
 
+    // Write-through cache: Invalidate reward caches
+    setImmediate(async () => {
+      try {
+        await cacheService.delete(`reward:${rewardId}`);
+        await cacheService.deletePattern('rewards:*');
+        await cacheService.deletePattern('availableRewards:*');
+      } catch (err) {
+        console.error('Error invalidating reward caches after update:', err);
+      }
+    });
+
     res.json({
       success: true,
       message: 'Reward updated successfully',
@@ -674,6 +767,17 @@ router.delete('/rewards/:rewardId', authenticateToken, requireAdmin, async (req,
 
     await prisma.availableReward.delete({
       where: { id: rewardId }
+    });
+
+    // Write-through cache: Invalidate reward caches
+    setImmediate(async () => {
+      try {
+        await cacheService.delete(`reward:${rewardId}`);
+        await cacheService.deletePattern('rewards:*');
+        await cacheService.deletePattern('availableRewards:*');
+      } catch (err) {
+        console.error('Error invalidating reward caches after delete:', err);
+      }
     });
 
     res.json({
@@ -845,6 +949,9 @@ router.post('/articles', authenticateToken, debugMiddleware, upload.fields([{ na
           await cacheService.deletePattern(`public:articles:${userId}:*`);
           // Invalidate public profile cache (articles count changed)
           await cacheService.delete(`public:profile:${userId}`);
+          // Invalidate admin caches
+          await cacheService.deletePattern('admin:articles:*');
+          await cacheService.delete('admin:stats');
         } catch (err) {
           console.error('Error refreshing caches after create:', err);
         }
@@ -874,45 +981,47 @@ router.get('/articles', authenticateToken, requireAdmin, async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const articles = await prisma.article.findMany({
-      where: {
-        status: 'published'
-      },
-      orderBy: { publishedAt: 'desc' },
-      skip,
-      take: limit,
-      include: {
-        activities: {
-          select: {
-            id: true,
-            userId: true,
-            pointsEarned: true
-          }
+    const cacheKey = `admin:articles:${page}:${limit}`;
+
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const result = await cacheService.getOrSet(cacheKey, async () => {
+      const articles = await prisma.article.findMany({
+        where: {
+          status: 'published'
         },
-        author: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            role: true
+        orderBy: { publishedAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          activities: {
+            select: {
+              id: true,
+              userId: true,
+              pointsEarned: true
+            }
+          },
+          author: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              role: true
+            }
           }
         }
-      }
-    });
+      });
 
-    const totalCount = await prisma.article.count({
-      where: { status: 'published' }
-    });
+      const totalCount = await prisma.article.count({
+        where: { status: 'published' }
+      });
 
-    // Add computed fields
-    const articlesWithStats = articles.map(article => ({
-      ...article,
-      views: article.activities.length
-    }));
+      // Add computed fields
+      const articlesWithStats = articles.map(article => ({
+        ...article,
+        views: article.activities.length
+      }));
 
-    res.json({
-      success: true,
-      data: {
+      return {
         articles: articlesWithStats,
         pagination: {
           page,
@@ -920,7 +1029,12 @@ router.get('/articles', authenticateToken, requireAdmin, async (req, res) => {
           total: totalCount,
           pages: Math.ceil(totalCount / limit)
         }
-      }
+      };
+    }, 300); // 5 minutes TTL
+
+    res.json({
+      success: true,
+      data: result
     });
 
   } catch (error) {
@@ -940,33 +1054,35 @@ router.get('/articles/pending', authenticateToken, requireAdmin, async (req, res
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const articles = await prisma.article.findMany({
-      where: {
-        status: 'pending'
-      },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit,
-      include: {
-        author: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-            role: true
+    const cacheKey = `admin:articles:pending:${page}:${limit}`;
+
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const result = await cacheService.getOrSet(cacheKey, async () => {
+      const articles = await prisma.article.findMany({
+        where: {
+          status: 'pending'
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          author: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              email: true,
+              role: true
+            }
           }
         }
-      }
-    });
+      });
 
-    const totalCount = await prisma.article.count({
-      where: { status: 'pending' }
-    });
+      const totalCount = await prisma.article.count({
+        where: { status: 'pending' }
+      });
 
-    res.json({
-      success: true,
-      data: {
+      return {
         articles,
         pagination: {
           page,
@@ -974,7 +1090,12 @@ router.get('/articles/pending', authenticateToken, requireAdmin, async (req, res
           total: totalCount,
           pages: Math.ceil(totalCount / limit)
         }
-      }
+      };
+    }, 120); // 2 minutes TTL (pending articles change frequently)
+
+    res.json({
+      success: true,
+      data: result
     });
 
   } catch (error) {
@@ -1042,8 +1163,20 @@ router.put('/articles/:id', authenticateToken, async (req, res) => {
             fetchFeaturedArticles,
             article.id
           );
+          // Invalidate admin article caches
+          await cacheService.deletePattern('admin:articles:*');
         } catch (err) {
           console.error('Error refreshing article caches after update:', err);
+        }
+      });
+    } else {
+      // If article is pending or rejected, invalidate admin caches
+      setImmediate(async () => {
+        try {
+          await cacheService.deletePattern('admin:articles:*');
+          await cacheService.deletePattern('admin:articles:pending:*');
+        } catch (err) {
+          console.error('Error invalidating admin article caches after update:', err);
         }
       });
     }
@@ -1101,6 +1234,8 @@ router.patch('/articles/:id/trending', authenticateToken, requireAdmin, async (r
             fetchFeaturedArticles,
             article.id
           );
+          // Invalidate admin article caches
+          await cacheService.deletePattern('admin:articles:*');
         } catch (err) {
           console.error('Error refreshing article caches after trending toggle:', err);
         }
@@ -1239,13 +1374,20 @@ router.get('/articles/:id/read-count/actual', authenticateToken, requireAdmin, a
   try {
     const { id } = req.params;
 
-    const actualCount = await prisma.userActivity.count({
-      where: { articleId: id }
-    });
+    const cacheKey = `admin:article:${id}:read-count:actual`;
+
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const result = await cacheService.getOrSet(cacheKey, async () => {
+      const actualCount = await prisma.userActivity.count({
+        where: { articleId: id }
+      });
+
+      return { actualCount };
+    }, 300); // 5 minutes TTL
 
     res.json({
       success: true,
-      data: { actualCount }
+      data: result
     });
   } catch (error) {
     console.error('Get actual read count error:', error);
@@ -1284,6 +1426,8 @@ router.patch('/articles/:id/featured', authenticateToken, requireAdmin, async (r
             fetchFeaturedArticles,
             article.id
           );
+          // Invalidate admin article caches
+          await cacheService.deletePattern('admin:articles:*');
         } catch (err) {
           console.error('Error refreshing article caches after featured toggle:', err);
         }
@@ -1361,6 +1505,11 @@ router.delete('/articles/:id', authenticateToken, requireAdmin, async (req, res)
           fetchFeaturedArticles,
           id
         );
+        // Invalidate admin article caches
+        await cacheService.deletePattern('admin:articles:*');
+        await cacheService.deletePattern('admin:articles:pending:*');
+        await cacheService.deletePattern('admin:articles:review-history:*');
+        await cacheService.delete('admin:stats');
       } catch (err) {
         console.error('Error refreshing article caches after delete:', err);
       }
@@ -1455,6 +1604,11 @@ router.patch('/articles/:id/approve', authenticateToken, requireAdmin, async (re
         await cacheService.deletePattern(`public:articles:${article.authorId}:*`);
         // Invalidate public profile cache (articles count changed)
         await cacheService.delete(`public:profile:${article.authorId}`);
+        // Invalidate admin caches
+        await cacheService.deletePattern('admin:articles:*');
+        await cacheService.deletePattern('admin:articles:pending:*');
+        await cacheService.deletePattern('admin:articles:review-history:*');
+        await cacheService.delete('admin:stats');
       } catch (err) {
         console.error('Error refreshing caches after approve:', err);
       }
@@ -1536,6 +1690,26 @@ router.patch('/articles/:id/reject', authenticateToken, requireAdmin, async (req
 
     console.log(`Article ${id} rejected by admin ${userId}. Reason: ${reason}`);
 
+    // Write-through cache: Invalidate article caches
+    setImmediate(async () => {
+      try {
+        // Invalidate pending articles cache (article no longer pending)
+        await cacheService.deletePattern('admin:articles:pending:*');
+        // Invalidate review history cache (new review entry)
+        await cacheService.deletePattern('admin:articles:review-history:*');
+        // Invalidate admin articles cache (if article was published before)
+        await cacheService.deletePattern('admin:articles:*');
+        // Invalidate creator articles cache
+        await cacheService.deletePattern(`creator:articles:${article.authorId}:*`);
+        // Invalidate public articles cache
+        await cacheService.deletePattern(`public:articles:${article.authorId}:*`);
+        // Invalidate admin stats cache (article count changed)
+        await cacheService.delete('admin:stats');
+      } catch (err) {
+        console.error('Error invalidating caches after reject:', err);
+      }
+    });
+
     res.json({
       success: true,
       message: 'Article rejected successfully',
@@ -1560,75 +1734,77 @@ router.get('/articles/review-history', authenticateToken, requireAdmin, async (r
     const skip = (page - 1) * limit;
     const userId = req.user.id;
 
-    // Get all articles that have been reviewed by any admin
-    const reviewedArticles = await prisma.article.findMany({
-      where: {
-        status: {
-          in: ['approved', 'rejected', 'published']
-        },
-        reviewedBy: {
-          not: null
-        }
-      },
-      orderBy: { reviewedAt: 'desc' },
-      skip,
-      take: limit,
-      include: {
-        author: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-            role: true
+    const cacheKey = `admin:articles:review-history:${page}:${limit}`;
+
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const result = await cacheService.getOrSet(cacheKey, async () => {
+      // Get all articles that have been reviewed by any admin
+      const reviewedArticles = await prisma.article.findMany({
+        where: {
+          status: {
+            in: ['approved', 'rejected', 'published']
+          },
+          reviewedBy: {
+            not: null
           }
         },
-        reviewer: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            role: true
+        orderBy: { reviewedAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          author: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              email: true,
+              role: true
+            }
+          },
+          reviewer: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              role: true
+            }
           }
         }
-      }
-    });
+      });
 
-    const totalCount = await prisma.article.count({
-      where: {
-        status: {
-          in: ['approved', 'rejected', 'published']
-        },
-        reviewedBy: {
-          not: null
+      const totalCount = await prisma.article.count({
+        where: {
+          status: {
+            in: ['approved', 'rejected', 'published']
+          },
+          reviewedBy: {
+            not: null
+          }
         }
-      }
-    });
+      });
 
-    // Transform data for frontend
-    const reviewHistory = reviewedArticles.map(article => {
-      const isCreatedByAdmin = article.authorId === userId;
-      const isReviewedByAdmin = article.reviewedBy === userId;
-      
+      // Transform data for frontend
+      const reviewHistory = reviewedArticles.map(article => {
+        const isCreatedByAdmin = article.authorId === userId;
+        const isReviewedByAdmin = article.reviewedBy === userId;
+        
+        return {
+          id: article.id,
+          articleId: article.id,
+          articleTitle: article.title,
+          action: article.status === 'published' ? 'approved' : article.status,
+          reviewedAt: article.reviewedAt || article.publishedAt || article.createdAt,
+          sortDate: article.reviewedAt || article.publishedAt || article.createdAt,
+          reviewerName: isCreatedByAdmin ? 'Self (Created)' : (article.reviewer?.displayName || article.reviewer?.username || 'Admin'),
+          comments: article.rejectionReason || (article.status === 'approved' || article.status === 'published' ? 
+            (isCreatedByAdmin ? 'Article created and published directly' : 'Article approved for publication') : 'No comments'),
+          authorName: article.author?.displayName || article.author?.username || 'Unknown',
+          category: article.category,
+          createdAt: article.createdAt
+        };
+      });
+
       return {
-        id: article.id,
-        articleId: article.id,
-        articleTitle: article.title,
-        action: article.status === 'published' ? 'approved' : article.status,
-        reviewedAt: article.reviewedAt || article.publishedAt || article.createdAt,
-        sortDate: article.reviewedAt || article.publishedAt || article.createdAt,
-        reviewerName: isCreatedByAdmin ? 'Self (Created)' : (article.reviewer?.displayName || article.reviewer?.username || 'Admin'),
-        comments: article.rejectionReason || (article.status === 'approved' || article.status === 'published' ? 
-          (isCreatedByAdmin ? 'Article created and published directly' : 'Article approved for publication') : 'No comments'),
-        authorName: article.author?.displayName || article.author?.username || 'Unknown',
-        category: article.category,
-        createdAt: article.createdAt
-      };
-    });
-
-    res.json({
-      success: true,
-      data: {
         reviewHistory,
         pagination: {
           page,
@@ -1636,7 +1812,12 @@ router.get('/articles/review-history', authenticateToken, requireAdmin, async (r
           total: totalCount,
           pages: Math.ceil(totalCount / limit)
         }
-      }
+      };
+    }, 300); // 5 minutes TTL
+
+    res.json({
+      success: true,
+      data: result
     });
 
   } catch (error) {
