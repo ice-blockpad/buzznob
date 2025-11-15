@@ -4,6 +4,7 @@ const { prisma } = require('../config/database');
 const { generateToken, generateRefreshToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const pushNotificationService = require('../services/pushNotificationService');
+const baseAuth = require('../services/baseAuth');
 
 const router = express.Router();
 
@@ -605,6 +606,445 @@ router.post('/refresh', async (req, res) => {
       success: false,
       error: 'TOKEN_REFRESH_ERROR',
       message: 'Token refresh failed'
+    });
+  }
+});
+
+// Get Base nonce for SIWE
+// GET /auth/base-nonce
+router.get('/base-nonce', async (req, res) => {
+  try {
+    const nonce = baseAuth.generateNonce();
+    res.json({
+      success: true,
+      nonce,
+    });
+  } catch (error) {
+    console.error('Base nonce generation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'NONCE_GENERATION_ERROR',
+      message: 'Failed to generate nonce',
+    });
+  }
+});
+
+// Check if user exists by wallet address
+// GET /auth/check-user-by-wallet-address?walletAddress=...
+router.get('/check-user-by-wallet-address', async (req, res) => {
+  try {
+    const { walletAddress } = req.query;
+    
+    if (!walletAddress) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'MISSING_WALLET_ADDRESS',
+        message: 'walletAddress is required in query parameters' 
+      });
+    }
+
+    // Normalize wallet address (lowercase)
+    const normalizedAddress = walletAddress.toLowerCase();
+
+    // Check database for user with this walletAddress
+    const user = await prisma.user.findUnique({
+      where: {
+        walletAddress: normalizedAddress
+      },
+      select: { 
+        id: true,
+        username: true,
+        email: true,
+        walletAddress: true
+      },
+    });
+
+    const exists = !!user;
+    
+    return res.json({ 
+      success: true, 
+      exists: exists,
+      walletAddress: normalizedAddress,
+      user: user || null
+    });
+  } catch (error) {
+    console.error('User existence check error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'DATABASE_ERROR',
+      message: 'Failed to check user existence'
+    });
+  }
+});
+
+// Base Smart Wallet login (SIWE)
+// POST /auth/base-login
+router.post('/base-login', async (req, res) => {
+  try {
+    const { address, message, signature, nonce } = req.body;
+    
+    if (!address || !message || !signature || !nonce) {
+      return res.status(400).json({
+        success: false,
+        error: 'MISSING_REQUIRED_FIELDS',
+        message: 'Address, message, signature, and nonce are required'
+      });
+    }
+
+    // Normalize wallet address
+    const normalizedAddress = address.toLowerCase();
+
+    // Verify SIWE signature
+    const isValidSignature = await baseAuth.verifySIWESignature(
+      normalizedAddress,
+      message,
+      signature
+    );
+
+    if (!isValidSignature) {
+      return res.status(401).json({
+        success: false,
+        error: 'INVALID_SIGNATURE',
+        message: 'Invalid signature'
+      });
+    }
+
+    // Validate SIWE message
+    const isValidMessage = baseAuth.validateSIWEMessage(
+      message,
+      normalizedAddress,
+      nonce,
+      'buzznob.app'
+    );
+
+    if (!isValidMessage) {
+      return res.status(401).json({
+        success: false,
+        error: 'INVALID_MESSAGE',
+        message: 'Invalid SIWE message'
+      });
+    }
+
+    // Check if user exists by wallet address
+    let user = await prisma.user.findUnique({
+      where: {
+        walletAddress: normalizedAddress
+      }
+    });
+
+    const isNewUser = !user;
+
+    if (isNewUser) {
+      // New user - return wallet address for profile completion
+      // User will complete profile and then finalize account
+      return res.json({
+        success: true,
+        isNewUser: true,
+        message: 'New user - profile completion required',
+        data: {
+          walletAddress: normalizedAddress,
+          requiresProfileCompletion: true
+        }
+      });
+    }
+
+    // Existing user - login
+    // Update last login
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() }
+    });
+
+    // Generate tokens
+    const accessTokenJWT = generateToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+
+    // Store refresh token
+    await prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: refreshToken,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      }
+    });
+
+    // Create user session
+    await prisma.userSession.create({
+      data: {
+        userId: user.id,
+        accessToken: accessTokenJWT,
+        refreshToken: refreshToken,
+        deviceInfo: req.headers['user-agent'] || 'Mobile App',
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      }
+    });
+
+    console.log('✅ [base-login] Login successful for user:', user.id);
+    
+    res.json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          displayName: user.displayName,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          bio: user.bio,
+          avatarUrl: user.avatarUrl,
+          points: user.points,
+          streakCount: user.streakCount,
+          referralCode: user.referralCode,
+          role: user.role,
+          isActive: user.isActive,
+          isVerified: user.isVerified,
+          kycStatus: user.kycStatus,
+          walletAddress: user.walletAddress,
+        },
+        accessToken: accessTokenJWT,
+        refreshToken
+      }
+    });
+
+  } catch (error) {
+    console.error('Base login error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'BASE_LOGIN_ERROR',
+      message: 'Base login failed'
+    });
+  }
+});
+
+// Finalize Base account (after profile completion)
+// POST /auth/finalize-base-account
+router.post('/finalize-base-account', async (req, res) => {
+  try {
+    const { 
+      walletAddress,
+      username,
+      displayName,
+      firstName,
+      lastName,
+      avatarUrl,
+      bio,
+      referralCode
+    } = req.body;
+
+    if (!walletAddress || !username || !displayName) {
+      return res.status(400).json({
+        success: false,
+        error: 'MISSING_REQUIRED_FIELDS',
+        message: 'Wallet address, username, and display name are required'
+      });
+    }
+
+    // Normalize wallet address
+    const normalizedAddress = walletAddress.toLowerCase();
+
+    // Check if user already exists
+    let user = await prisma.user.findUnique({
+      where: {
+        walletAddress: normalizedAddress
+      }
+    });
+
+    if (user) {
+      return res.status(400).json({
+        success: false,
+        error: 'USER_ALREADY_EXISTS',
+        message: 'User already exists. Please use login endpoint instead.'
+      });
+    }
+
+    // Validate username
+    const usernameRegex = /^[a-zA-Z0-9_]+$/;
+    if (!usernameRegex.test(username.trim())) {
+      return res.status(400).json({
+        success: false,
+        error: 'INVALID_USERNAME_FORMAT',
+        message: 'Username can only contain letters, numbers, and underscores (_)'
+      });
+    }
+
+    // Check if username is already taken
+    const existingUsername = await prisma.user.findUnique({
+      where: { username }
+    });
+
+    if (existingUsername) {
+      return res.status(400).json({
+        success: false,
+        error: 'USERNAME_TAKEN',
+        message: 'Username is already taken'
+      });
+    }
+
+    // Validate referral code if provided
+    let referrerId = null;
+    if (referralCode) {
+      const referrer = await prisma.user.findUnique({
+        where: { referralCode: referralCode.trim() }
+      });
+      
+      if (!referrer) {
+        return res.status(400).json({
+          success: false,
+          error: 'INVALID_REFERRAL_CODE',
+          message: 'Referral code is invalid or does not exist'
+        });
+      }
+      
+      referrerId = referrer.id;
+    }
+
+    // Create the user account
+    user = await prisma.user.create({
+      data: {
+        walletAddress: normalizedAddress,
+        username,
+        displayName,
+        firstName: firstName || displayName.split(' ')[0] || '',
+        lastName: lastName || displayName.split(' ').slice(1).join(' ') || '',
+        bio: bio || '',
+        avatarUrl,
+        lastLogin: new Date(),
+        referralCode: generateUniqueReferralCode(),
+        referredBy: referrerId,
+        role: 'user',
+        isVerified: false,
+        points: 0
+      }
+    });
+
+    // Handle referral code if provided (same logic as Particle finalize)
+    if (referralCode && referrerId) {
+      try {
+        await prisma.$transaction(async (tx) => {
+          const existingReward = await tx.referralReward.findUnique({
+            where: {
+              referrerId_refereeId: {
+                referrerId: referrerId,
+                refereeId: user.id
+              }
+            }
+          });
+
+          if (existingReward) {
+            return;
+          }
+
+          const referrer = await tx.user.findUnique({
+            where: { id: referrerId }
+          });
+
+          if (!referrer) {
+            throw new Error('REFERRER_NOT_FOUND');
+          }
+
+          await tx.user.update({
+            where: { id: user.id },
+            data: { points: { increment: 100 } }
+          });
+
+          await tx.user.update({
+            where: { id: referrer.id },
+            data: { points: { increment: 50 } }
+          });
+
+          await tx.referralReward.create({
+            data: {
+              referrerId: referrer.id,
+              refereeId: user.id,
+              pointsEarned: 50,
+              status: 'completed'
+            }
+          });
+        });
+
+        const referrer = await prisma.user.findUnique({
+          where: { id: referrerId },
+          select: { id: true, email: true }
+        });
+
+        if (referrer) {
+          const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+          const cacheService = require('../services/cacheService');
+          setImmediate(() => {
+            Promise.all([
+              refreshUserAndLeaderboardCaches(referrer.id),
+              refreshUserAndLeaderboardCaches(user.id),
+              cacheService.delete(`referral:stats:${referrer.id}`),
+              cacheService.deletePattern(`referral:history:${referrer.id}:*`)
+            ]).catch(err => console.error('Error refreshing caches after referral:', err));
+          });
+          
+          setImmediate(() => {
+            pushNotificationService.sendNewReferralNotification(
+              referrer.id,
+              user.displayName || user.username
+            ).catch(err => console.error('Failed to send referral notification:', err));
+          });
+        }
+      } catch (referralError) {
+        console.error('Referral processing error:', referralError);
+      }
+    }
+
+    // Generate tokens
+    const accessTokenJWT = generateToken(user.id);
+    const refreshToken = generateRefreshToken(user.id);
+
+    // Create user session
+    await prisma.userSession.create({
+      data: {
+        userId: user.id,
+        accessToken: accessTokenJWT,
+        refreshToken: refreshToken,
+        deviceInfo: req.headers['user-agent'] || 'Mobile App',
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Account created successfully',
+      data: {
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          displayName: user.displayName,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          bio: user.bio,
+          avatarUrl: user.avatarUrl,
+          points: user.points,
+          streakCount: user.streakCount,
+          referralCode: user.referralCode,
+          role: user.role,
+          isActive: user.isActive,
+          isVerified: user.isVerified,
+          kycStatus: user.kycStatus,
+          walletAddress: user.walletAddress,
+        },
+        accessToken: accessTokenJWT,
+        refreshToken
+      }
+    });
+
+  } catch (error) {
+    console.error('Finalize Base account error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'ACCOUNT_CREATION_ERROR',
+      message: 'Failed to create account'
     });
   }
 });
