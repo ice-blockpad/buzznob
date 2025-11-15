@@ -3,6 +3,7 @@ const { prisma } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const upload = require('../middleware/upload');
+const cacheService = require('../services/cacheService');
 
 const router = express.Router();
 
@@ -120,6 +121,15 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
       }
     });
 
+    // Write-through cache: Invalidate creator articles cache (new article added)
+    setImmediate(async () => {
+      try {
+        await cacheService.deletePattern(`creator:articles:${userId}:*`);
+      } catch (err) {
+        console.error('Error invalidating creator articles cache:', err);
+      }
+    });
+
     res.json({
       success: true,
       message: 'Article submitted for review successfully',
@@ -136,7 +146,7 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
   }
 });
 
-// Get creator's articles
+// Get creator's articles (with write-through cache)
 router.get('/articles', authenticateToken, requireCreator, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -145,36 +155,39 @@ router.get('/articles', authenticateToken, requireCreator, async (req, res) => {
     const status = req.query.status; // 'approved', 'rejected', 'pending', or null for all
     const skip = (page - 1) * limit;
 
-    const where = {
-      authorId: userId
-    };
+    // Create cache key based on user, page, limit, and status
+    const cacheKey = `creator:articles:${userId}:${page}:${limit}:${status || 'all'}`;
 
-    if (status) {
-      where.status = status;
-    }
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const result = await cacheService.getOrSet(cacheKey, async () => {
+      const where = {
+        authorId: userId
+      };
 
-    const articles = await prisma.article.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit,
-      include: {
-        reviewer: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            role: true
+      if (status) {
+        where.status = status;
+      }
+
+      const articles = await prisma.article.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          reviewer: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              role: true
+            }
           }
         }
-      }
-    });
+      });
 
-    const totalCount = await prisma.article.count({ where });
+      const totalCount = await prisma.article.count({ where });
 
-    res.json({
-      success: true,
-      data: {
+      return {
         articles,
         pagination: {
           page,
@@ -182,7 +195,12 @@ router.get('/articles', authenticateToken, requireCreator, async (req, res) => {
           total: totalCount,
           pages: Math.ceil(totalCount / limit)
         }
-      }
+      };
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
+
+    res.json({
+      success: true,
+      data: result
     });
 
   } catch (error) {
@@ -261,6 +279,15 @@ router.put('/articles/:id', authenticateToken, requireCreator, async (req, res) 
       data: updateData
     });
 
+    // Write-through cache: Invalidate creator articles cache (article updated)
+    setImmediate(async () => {
+      try {
+        await cacheService.deletePattern(`creator:articles:${userId}:*`);
+      } catch (err) {
+        console.error('Error invalidating creator articles cache:', err);
+      }
+    });
+
     res.json({
       success: true,
       message: 'Article updated and resubmitted for review',
@@ -310,6 +337,20 @@ router.delete('/articles/:id', authenticateToken, requireCreator, async (req, re
 
     await prisma.article.delete({
       where: { id }
+    });
+
+    // Write-through cache: Invalidate creator articles cache (article deleted)
+    setImmediate(async () => {
+      try {
+        await cacheService.deletePattern(`creator:articles:${userId}:*`);
+        // Also invalidate public articles cache if article was published
+        if (article.status === 'published') {
+          await cacheService.deletePattern(`public:articles:${userId}:*`);
+          await cacheService.delete(`public:profile:${userId}`);
+        }
+      } catch (err) {
+        console.error('Error invalidating caches after article delete:', err);
+      }
     });
 
     res.json({

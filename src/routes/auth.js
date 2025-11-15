@@ -342,49 +342,94 @@ router.post('/finalize-account', async (req, res) => {
     // Handle referral code if provided
     if (referralCode && referrerId) {
       try {
-        // Get the referrer (we already validated it during user creation)
-        const referrer = await prisma.user.findUnique({
-          where: { id: referrerId }
-        });
+        // Use transaction to atomically process referral rewards
+        // This prevents duplicate referral rewards if user creation is called multiple times
+        await prisma.$transaction(async (tx) => {
+          // Check if referral reward already exists (prevent duplicates)
+          const existingReward = await tx.referralReward.findUnique({
+            where: {
+              referrerId_refereeId: {
+                referrerId: referrerId,
+                refereeId: user.id
+              }
+            }
+          });
 
-        // Award points to both users
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { points: { increment: 100 } }
-        });
-
-        await prisma.user.update({
-          where: { id: referrer.id },
-          data: { points: { increment: 50 } }
-        });
-
-        // Create referral reward record
-        await prisma.referralReward.create({
-          data: {
-            referrerId: referrer.id,
-            refereeId: user.id,
-            pointsEarned: 50, // Points earned by the referrer
-            status: 'completed'
+          if (existingReward) {
+            // Referral already processed, skip
+            console.log(`⏭️  Referral reward already processed for ${referrerId} -> ${user.id}`);
+            return;
           }
-        });
 
-        console.log(`✅ Referral reward processed: ${referrer.email} -> ${user.email}`);
-        
-        // Send push notification to referrer about new referral
-        setImmediate(() => {
-          pushNotificationService.sendNewReferralNotification(
-            referrer.id,
-            user.displayName || user.username
-          ).catch(err => console.error('Failed to send referral notification:', err));
-        });
+          // Get the referrer (we already validated it during user creation)
+          const referrer = await tx.user.findUnique({
+            where: { id: referrerId }
+          });
 
-        // Check for referral achievements for the referrer
-        const achievementsService = require('../services/achievements');
-        setImmediate(() => {
-          achievementsService.checkBadgeEligibility(referrer.id).catch(err => {
-            console.error('Failed to check referral achievements:', err);
+          if (!referrer) {
+            throw new Error('REFERRER_NOT_FOUND');
+          }
+
+          // Award points to both users atomically
+          await tx.user.update({
+            where: { id: user.id },
+            data: { points: { increment: 100 } }
+          });
+
+          await tx.user.update({
+            where: { id: referrer.id },
+            data: { points: { increment: 50 } }
+          });
+
+          // Create referral reward record
+          await tx.referralReward.create({
+            data: {
+              referrerId: referrer.id,
+              refereeId: user.id,
+              pointsEarned: 50, // Points earned by the referrer
+              status: 'completed'
+            }
           });
         });
+
+        // Get referrer info for logging and notifications (after transaction completes)
+        const referrer = await prisma.user.findUnique({
+          where: { id: referrerId },
+          select: { id: true, email: true }
+        });
+
+        if (referrer) {
+          console.log(`✅ Referral reward processed: ${referrer.email} -> ${user.email}`);
+          
+          // Write-through cache: Refresh caches for both referrer and referee (points changed)
+          const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+          const cacheService = require('../services/cacheService');
+          setImmediate(() => {
+            Promise.all([
+              refreshUserAndLeaderboardCaches(referrer.id),
+              refreshUserAndLeaderboardCaches(user.id),
+              // Invalidate referral stats and history caches for the referrer
+              cacheService.delete(`referral:stats:${referrer.id}`),
+              cacheService.deletePattern(`referral:history:${referrer.id}:*`)
+            ]).catch(err => console.error('Error refreshing caches after referral:', err));
+          });
+          
+          // Send push notification to referrer about new referral
+          setImmediate(() => {
+            pushNotificationService.sendNewReferralNotification(
+              referrer.id,
+              user.displayName || user.username
+            ).catch(err => console.error('Failed to send referral notification:', err));
+          });
+
+          // Check for referral achievements for the referrer
+          const achievementsService = require('../services/achievements');
+          setImmediate(() => {
+            achievementsService.checkBadgeEligibility(referrer.id).catch(err => {
+              console.error('Failed to check referral achievements:', err);
+            });
+          });
+        }
       } catch (referralError) {
         console.error('Referral processing error:', referralError);
         return res.status(500).json({

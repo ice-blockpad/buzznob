@@ -3,6 +3,8 @@ const { prisma } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const { deduplicateRequest } = require('../middleware/deduplication');
+const cacheService = require('../services/cacheService');
+const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
 
 const router = express.Router();
 
@@ -90,23 +92,38 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
     const computedBase = Math.min(5 + ((consecutiveDays - 1) * 5), 50);
     const rewardPoints = Math.max(5, computedBase);
 
-    // Persist daily reward and update user points and streakCount
-    // streakCount now represents current day number (1, 2, 3, etc.)
-    await prisma.dailyReward.create({
-      data: {
-        userId,
-        pointsEarned: rewardPoints,
-        streakCount: consecutiveDays, // Already >= 1, no need for Math.max(0, ...)
-        streakBonus: 0
-      }
-    });
+    // Use transaction to atomically persist daily reward and update user points/streakCount
+    // This prevents race conditions where multiple simultaneous requests could claim twice
+    await prisma.$transaction(async (tx) => {
+      // Double-check cooldown within transaction to prevent race conditions
+      const lastClaimInTx = await tx.dailyReward.findFirst({
+        where: { userId },
+        orderBy: { claimedAt: 'desc' }
+      });
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        points: { increment: rewardPoints },
-        streakCount: consecutiveDays // Already >= 1, no need for Math.max(0, ...)
+      if (lastClaimInTx && utcDayDiff(now, lastClaimInTx.claimedAt) === 0) {
+        const nextAvail = nextUtcMidnight(now);
+        const hoursRemaining = Math.ceil((nextAvail - now) / (1000 * 60 * 60));
+        throw new Error(`DAILY_REWARD_COOLDOWN:${nextAvail.toISOString()}:${hoursRemaining}`);
       }
+
+      // Persist daily reward and update user points and streakCount atomically
+      await tx.dailyReward.create({
+        data: {
+          userId,
+          pointsEarned: rewardPoints,
+          streakCount: consecutiveDays,
+          streakBonus: 0
+        }
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          points: { increment: rewardPoints },
+          streakCount: consecutiveDays
+        }
+      });
     });
 
     // Check for streak achievements
@@ -114,6 +131,14 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
     setImmediate(() => {
       achievementsService.checkBadgeEligibility(userId).catch(err => {
         console.error('Failed to check streak achievements:', err);
+      });
+    });
+
+    // Write-through cache: Refresh user profile cache after points change
+    // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
+    setImmediate(() => {
+      refreshUserAndLeaderboardCaches(userId).catch(err => {
+        console.error('Error refreshing caches after daily claim:', err);
       });
     });
 
@@ -131,6 +156,18 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Daily reward claim error:', error);
+    
+    // Handle cooldown error from transaction
+    if (error.message && error.message.startsWith('DAILY_REWARD_COOLDOWN:')) {
+      const [, nextAvail, hoursRemaining] = error.message.split(':');
+      return res.status(400).json({
+        success: false,
+        error: 'DAILY_REWARD_COOLDOWN',
+        message: `Daily reward is on cooldown. Try again in ${hoursRemaining} hours.`,
+        data: { nextAvailableAt: new Date(nextAvail), hoursRemaining: parseInt(hoursRemaining) }
+      });
+    }
+    
     res.status(500).json({
       success: false,
       error: 'DAILY_REWARD_ERROR',
@@ -328,47 +365,80 @@ router.post('/redeem', authenticateToken, async (req, res) => {
       });
     }
 
-    // Check if user has enough points
-    if (req.user.points < availableReward.pointsRequired) {
-      return res.status(400).json({
-        success: false,
-        error: 'INSUFFICIENT_POINTS',
-        message: 'Not enough points to redeem this reward'
+    // Use transaction to atomically create reward, deduct points, and update stock
+    // This prevents race conditions where user could overspend points or oversell stock
+    const reward = await prisma.$transaction(async (tx) => {
+      // Re-fetch user and reward within transaction to get latest values
+      const userInTx = await tx.user.findUnique({
+        where: { id: userId },
+        select: { points: true }
       });
-    }
 
-    // Create reward record
-    const reward = await prisma.reward.create({
-      data: {
-        userId,
-        rewardType: availableReward.type,
-        rewardValue: availableReward.value,
-        status: 'pending',
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      const availableRewardInTx = await tx.availableReward.findUnique({
+        where: { id: rewardId }
+      });
+
+      if (!userInTx) {
+        throw new Error('USER_NOT_FOUND');
       }
-    });
 
-    // Deduct points from user
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        points: {
-          decrement: availableReward.pointsRequired
-        }
+      if (!availableRewardInTx || !availableRewardInTx.isActive) {
+        throw new Error('REWARD_NOT_AVAILABLE');
       }
-    });
 
-    // Update stock if applicable
-    if (availableReward.stock !== null) {
-      await prisma.availableReward.update({
-        where: { id: rewardId },
+      // Check stock within transaction
+      if (availableRewardInTx.stock !== null && availableRewardInTx.stock <= 0) {
+        throw new Error('REWARD_OUT_OF_STOCK');
+      }
+
+      // Check points within transaction
+      if (userInTx.points < availableRewardInTx.pointsRequired) {
+        throw new Error('INSUFFICIENT_POINTS');
+      }
+
+      // Create reward record
+      const newReward = await tx.reward.create({
         data: {
-          stock: {
-            decrement: 1
+          userId,
+          rewardType: availableRewardInTx.type,
+          rewardValue: availableRewardInTx.value,
+          status: 'pending',
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+        }
+      });
+
+      // Deduct points from user
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          points: {
+            decrement: availableRewardInTx.pointsRequired
           }
         }
       });
-    }
+
+      // Update stock if applicable
+      if (availableRewardInTx.stock !== null) {
+        await tx.availableReward.update({
+          where: { id: rewardId },
+          data: {
+            stock: {
+              decrement: 1
+            }
+          }
+        });
+      }
+
+      return newReward;
+    });
+
+    // Write-through cache: Refresh user profile cache after points change
+    // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
+    setImmediate(() => {
+      refreshUserAndLeaderboardCaches(userId).catch(err => {
+        console.error('Error refreshing caches after reward redeem:', err);
+      });
+    });
 
     res.json({
       success: true,
@@ -437,12 +507,12 @@ router.get('/my-rewards', authenticateToken, async (req, res) => {
   }
 });
 
-// Get leaderboard
+// Get leaderboard (with time-based cache - 10 minutes TTL)
 router.get('/leaderboard', async (req, res) => {
   try {
     const period = req.query.period || 'weekly';
     const limit = parseInt(req.query.limit) || 50;
-    const requestKey = `leaderboard:${period}:${limit}`;
+    const cacheKey = `leaderboard:${period}:${limit}`;
 
     // Calculate dates outside the callback so they're accessible to the SQL query
     let startDate;
@@ -465,8 +535,9 @@ router.get('/leaderboard', async (req, res) => {
         startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     }
 
-    const leaderboard = await deduplicateRequest(requestKey, async () => {
-
+    // Time-based cache: Get from cache, or fetch from DB and cache
+    // Cache expires every 10 minutes (no write-through refresh)
+    const leaderboard = await cacheService.getOrSet(cacheKey, async () => {
       // Single optimized query to get leaderboard with period points
       const result = await prisma.$queryRaw`
         WITH user_period_points AS (
@@ -495,17 +566,17 @@ router.get('/leaderboard', async (req, res) => {
       `;
 
       return result.map((user, index) => ({
-          rank: index + 1,
-          id: user.id,
-          username: user.username,
-          displayName: user.displayName,
-          avatarUrl: user.avatarUrl,
-          avatarData: user.avatarData,
+        rank: index + 1,
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName,
+        avatarUrl: user.avatarUrl,
+        avatarData: user.avatarData,
         totalPoints: parseInt(user.points),
         periodPoints: parseInt(user.periodPoints),
         streakCount: parseInt(user.streakCount)
       }));
-    });
+    }, 600); // 10 minutes TTL (time-based cache, no write-through refresh)
 
     res.json({
       success: true,
@@ -559,12 +630,17 @@ router.get('/user-rank', authenticateToken, async (req, res) => {
   }
 });
 
-// Get badges
+// Get badges (with write-through cache)
 router.get('/badges', authenticateToken, async (req, res) => {
   try {
-    const badges = await prisma.badge.findMany({
-      orderBy: { pointsRequired: 'asc' }
-    });
+    const cacheKey = 'badges:all';
+
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const badges = await cacheService.getOrSet(cacheKey, async () => {
+      return await prisma.badge.findMany({
+        orderBy: { pointsRequired: 'asc' }
+      });
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
 
     res.json({
       success: true,

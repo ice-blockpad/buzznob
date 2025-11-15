@@ -4,14 +4,14 @@ This guide explains how to test push notifications when the app is closed.
 
 ## Quick Start
 
-1. **Get your authentication token:**
+1.Get your authentication token:**
    - Open your app and log in
    - The token is stored in AsyncStorage as `accessToken`
    - You can find it in React Native Debugger or check app logs
 
-2. **Close your app completely** (important!)
+2.Close your app completely** (important!)
 
-3. **Run the test script:**
+3.Run the test script:**
    ```bash
    cd backend
    node test-notifications.js YOUR_AUTH_TOKEN

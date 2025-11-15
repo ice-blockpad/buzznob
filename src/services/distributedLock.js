@@ -23,7 +23,6 @@ class DistributedLock {
       const now = new Date();
       const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
 
-      // Try to acquire lock
       // First, clean up expired locks
       await prisma.cronLock.deleteMany({
         where: {
@@ -33,26 +32,26 @@ class DistributedLock {
         }
       });
 
-      // Try to create a new lock
-      try {
-        await prisma.cronLock.create({
-          data: {
-            lockKey,
-            instanceId: this.instanceId,
-            lockedAt: now,
-            expiresAt
-          }
-        });
-        return true; // Lock acquired successfully
-      } catch (error) {
-        // Lock already exists (unique constraint violation)
-        if (error.code === 'P2002') {
-          return false; // Another instance already has the lock
-        }
-        throw error; // Re-throw other errors
-      }
+      // Generate a unique ID (CUID-like format for consistency with Prisma)
+      const lockId = `cl${crypto.randomBytes(16).toString('hex')}`;
+
+      // Use raw SQL with ON CONFLICT DO NOTHING to atomically acquire lock
+      // This prevents Prisma from logging errors for expected constraint violations
+      // $executeRaw returns the number of affected rows (0 if conflict, 1 if inserted)
+      const affectedRows = await prisma.$executeRaw`
+        INSERT INTO cron_locks (id, lock_key, instance_id, locked_at, expires_at)
+        VALUES (${lockId}, ${lockKey}, ${this.instanceId}, ${now}, ${expiresAt})
+        ON CONFLICT (lock_key) DO NOTHING
+      `;
+
+      // If affectedRows > 0, we successfully inserted (lock acquired)
+      // If affectedRows === 0, ON CONFLICT was triggered (another instance has the lock)
+      return affectedRows > 0;
     } catch (error) {
-      console.error(`Error acquiring lock ${lockKey}:`, error);
+      // Only log unexpected errors
+      if (error.code !== 'P2002') {
+        console.error(`Error acquiring lock ${lockKey}:`, error);
+      }
       return false;
     }
   }

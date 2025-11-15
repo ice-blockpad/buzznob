@@ -4,15 +4,17 @@ const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const upload = require('../middleware/upload');
 const { deduplicateRequest } = require('../middleware/deduplication');
+const cacheService = require('../services/cacheService');
 
 const router = express.Router();
 
-// Get current user profile
+// Get current user profile (with write-through cache)
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
-    const requestKey = `profile:${req.user.id}`;
+    const cacheKey = `profile:${req.user.id}`;
     
-    const result = await deduplicateRequest(requestKey, async () => {
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const result = await cacheService.getOrSet(cacheKey, async () => {
       // Use a single query with raw SQL for better performance
       const result = await prisma.$queryRaw`
         SELECT 
@@ -38,12 +40,12 @@ router.get('/profile', authenticateToken, async (req, res) => {
 
       const user = result[0];
       return {
-      ...user,
+        ...user,
         totalArticlesRead: parseInt(user.totalArticlesRead) || 0,
         achievementsCount: parseInt(user.achievementsCount) || 0,
         rank: parseInt(user.rank) || 1
       };
-    });
+    }, 120); // 2 minutes TTL
 
     res.json({
       success: true,
@@ -134,10 +136,23 @@ router.put('/profile', authenticateToken, async (req, res) => {
     });
     const userRank = usersWithMorePoints + 1;
 
+    const profileData = { ...updatedUser, rank: userRank };
+
+    // Write-through cache: Refresh user profile cache and invalidate public profile cache
+    setImmediate(async () => {
+      try {
+        await cacheService.refreshUserProfile(req.user.id, async () => profileData);
+        // Invalidate public profile cache (profile data changed)
+        await cacheService.delete(`public:profile:${req.user.id}`);
+      } catch (err) {
+        console.error('Error refreshing user profile cache:', err);
+      }
+    });
+
     res.json({
       success: true,
       message: 'Profile updated successfully',
-      data: { user: { ...updatedUser, rank: userRank } }
+      data: { user: profileData }
     });
 
   } catch (error) {
@@ -244,10 +259,23 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
     });
     const userRank = usersWithMorePoints + 1;
 
+    const profileData = { ...updatedUser, rank: userRank };
+
+    // Write-through cache: Refresh user profile cache and invalidate public profile cache
+    setImmediate(async () => {
+      try {
+        await cacheService.refreshUserProfile(req.user.id, async () => profileData);
+        // Invalidate public profile cache (profile data changed)
+        await cacheService.delete(`public:profile:${req.user.id}`);
+      } catch (err) {
+        console.error('Error refreshing user profile cache:', err);
+      }
+    });
+
     res.json({
       success: true,
       message: 'Profile updated successfully',
-      data: { user: { ...updatedUser, rank: userRank } }
+      data: { user: profileData }
     });
 
   } catch (error) {
@@ -369,18 +397,22 @@ router.get('/activity', authenticateToken, async (req, res) => {
   }
 });
 
-// Get user badges/achievements
+// Get user badges/achievements (with write-through cache)
 router.get('/badges', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
+    const cacheKey = `user:badges:${userId}`;
 
-    const userBadges = await prisma.userBadge.findMany({
-      where: { userId },
-      include: {
-        badge: true
-      },
-      orderBy: { earnedAt: 'desc' }
-    });
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const userBadges = await cacheService.getOrSet(cacheKey, async () => {
+      return await prisma.userBadge.findMany({
+        where: { userId },
+        include: {
+          badge: true
+        },
+        orderBy: { earnedAt: 'desc' }
+      });
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
 
     res.json({
       success: true,
@@ -397,32 +429,38 @@ router.get('/badges', authenticateToken, async (req, res) => {
   }
 });
 
-// Get user achievements count
+// Get user achievements count (with write-through cache)
 router.get('/achievements', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
+    const cacheKey = `user:achievements:${userId}`;
 
-    // Get total achievements count
-    const achievementsCount = await prisma.userBadge.count({
-      where: { userId }
-    });
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const data = await cacheService.getOrSet(cacheKey, async () => {
+      // Get total achievements count
+      const achievementsCount = await prisma.userBadge.count({
+        where: { userId }
+      });
 
-    // Get recent achievements (last 5)
-    const recentAchievements = await prisma.userBadge.findMany({
-      where: { userId },
-      include: {
-        badge: true
-      },
-      orderBy: { earnedAt: 'desc' },
-      take: 5
-    });
+      // Get recent achievements (last 5)
+      const recentAchievements = await prisma.userBadge.findMany({
+        where: { userId },
+        include: {
+          badge: true
+        },
+        orderBy: { earnedAt: 'desc' },
+        take: 5
+      });
+
+      return {
+        totalCount: achievementsCount,
+        recentAchievements
+      };
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
 
     res.json({
       success: true,
-      data: {
-        totalCount: achievementsCount,
-        recentAchievements
-      }
+      data
     });
 
   } catch (error) {
@@ -454,29 +492,47 @@ router.post('/upgrade-to-creator', authenticateToken, async (req, res) => {
     // For now, we'll trust the purchase token (in production, MUST verify with Google)
     // const isValidPurchase = await verifyGooglePlayPurchase(purchaseToken, productId);
     
-    // Log the purchase for record keeping
-    console.log(`✅ Creator upgrade purchase: User ${userId}, Product ${productId}`);
+    // Use transaction to atomically upgrade user and award points
+    // This prevents duplicate upgrades if endpoint is called multiple times
+    const updatedUser = await prisma.$transaction(async (tx) => {
+      // Re-check role within transaction to prevent duplicate upgrades
+      const userInTx = await tx.user.findUnique({
+        where: { id: userId },
+        select: { role: true }
+      });
 
-    // Upgrade user to creator role
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: {
-        role: 'creator',
-        isVerified: true,
-        // Award 10,000 BUZZ tokens as welcome bonus
-        points: {
-          increment: 10000
-        }
-      },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        displayName: true,
-        role: true,
-        points: true,
-        isVerified: true
+      if (!userInTx) {
+        throw new Error('USER_NOT_FOUND');
       }
+
+      if (userInTx.role === 'creator' || userInTx.role === 'admin') {
+        throw new Error('ALREADY_CREATOR');
+      }
+
+      // Log the purchase for record keeping
+      console.log(`✅ Creator upgrade purchase: User ${userId}, Product ${productId}`);
+
+      // Upgrade user to creator role and award points atomically
+      return await tx.user.update({
+        where: { id: userId },
+        data: {
+          role: 'creator',
+          isVerified: true,
+          // Award 10,000 BUZZ tokens as welcome bonus
+          points: {
+            increment: 10000
+          }
+        },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          displayName: true,
+          role: true,
+          points: true,
+          isVerified: true
+        }
+      });
     });
 
     res.json({
@@ -487,6 +543,24 @@ router.post('/upgrade-to-creator', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Upgrade to creator error:', error);
+    
+    // Handle specific errors
+    if (error.message === 'USER_NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'User not found'
+      });
+    }
+    
+    if (error.message === 'ALREADY_CREATOR') {
+      return res.status(400).json({
+        success: false,
+        error: 'ALREADY_CREATOR',
+        message: 'User already has creator access'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       error: 'CREATOR_UPGRADE_ERROR',
@@ -520,7 +594,7 @@ router.delete('/account', authenticateToken, async (req, res) => {
   }
 });
 
- // Get creators list (for social features)
+ // Get creators list (for social features) (with write-through cache)
 router.get('/creators', authenticateToken, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -528,51 +602,59 @@ router.get('/creators', authenticateToken, async (req, res) => {
     const search = req.query.search || '';
     const skip = (page - 1) * limit;
 
-    // Build where clause for creators (users with creator or admin role)
-    const whereClause = {
-      role: {
-        in: ['creator', 'admin']
-      },
-      isActive: true
-    };
+    // Create cache key based on page, limit, and search
+    const cacheKey = `creators:list:${page}:${limit}:${search || 'all'}`;
 
-    // Add search functionality
-    if (search) {
-      whereClause.OR = [
-        { username: { contains: search, mode: 'insensitive' } },
-        { displayName: { contains: search, mode: 'insensitive' } },
-        { bio: { contains: search, mode: 'insensitive' } }
-      ];
-    }
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const cachedData = await cacheService.getOrSet(cacheKey, async () => {
+      // Build where clause for creators (users with creator or admin role)
+      const whereClause = {
+        role: {
+          in: ['creator', 'admin']
+        },
+        isActive: true
+      };
 
-    // Get creators with follower count
-    const creators = await prisma.user.findMany({
-      where: whereClause,
-      select: {
-        id: true,
-        username: true,
-        displayName: true,
-        bio: true,
-        avatarUrl: true,
-        avatarData: true,
-        avatarType: true,
-        role: true,
-        points: true,
-        createdAt: true,
-        _count: {
-          select: {
-            followers: true
+      // Add search functionality
+      if (search) {
+        whereClause.OR = [
+          { username: { contains: search, mode: 'insensitive' } },
+          { displayName: { contains: search, mode: 'insensitive' } },
+          { bio: { contains: search, mode: 'insensitive' } }
+        ];
+      }
+
+      // Get creators with follower count
+      const creators = await prisma.user.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          username: true,
+          displayName: true,
+          bio: true,
+          avatarUrl: true,
+          avatarData: true,
+          avatarType: true,
+          role: true,
+          points: true,
+          createdAt: true,
+          _count: {
+            select: {
+              followers: true
+            }
           }
-        }
-      },
-      orderBy: {
-        points: 'desc'
-      },
-      skip,
-      take: limit
-    });
+        },
+        orderBy: {
+          points: 'desc'
+        },
+        skip,
+        take: limit
+      });
 
-    // Get current user's following list
+      return creators;
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
+
+    // Get current user's following list (user-specific, not cached)
     const userFollows = await prisma.follow.findMany({
       where: { followerId: req.user.id },
       select: { followingId: true }
@@ -581,7 +663,7 @@ router.get('/creators', authenticateToken, async (req, res) => {
     const followingIds = userFollows.map(follow => follow.followingId);
 
     // Transform creators to include follower count
-    const creatorsWithStats = creators.map(creator => ({
+    const creatorsWithStats = cachedData.map(creator => ({
       id: creator.id,
       username: creator.username,
       displayName: creator.displayName,
@@ -591,7 +673,7 @@ router.get('/creators', authenticateToken, async (req, res) => {
       avatarType: creator.avatarType,
       role: creator.role,
       points: creator.points,
-      followersCount: creator._count.followers,
+      followersCount: creator._count?.followers || 0,
       createdAt: creator.createdAt,
       isCreator: creator.role === 'creator' || creator.role === 'admin'
     }));
@@ -669,6 +751,18 @@ router.post('/:userId/follow', authenticateToken, async (req, res) => {
       }
     });
 
+    // Write-through cache: Invalidate creators list and public profile caches (follower count changed)
+    setImmediate(async () => {
+      try {
+        // Invalidate creators list cache (follower counts changed)
+        await cacheService.deletePattern('creators:list:*');
+        // Invalidate public profile cache (follower count changed)
+        await cacheService.delete(`public:profile:${userId}`);
+      } catch (err) {
+        console.error('Error invalidating caches after follow:', err);
+      }
+    });
+
     res.json({
       success: true,
       message: `You are now following ${userToFollow.displayName || userToFollow.username}`
@@ -718,6 +812,18 @@ router.post('/:userId/unfollow', authenticateToken, async (req, res) => {
       }
     });
 
+    // Write-through cache: Invalidate creators list and public profile caches (follower count changed)
+    setImmediate(async () => {
+      try {
+        // Invalidate creators list cache (follower counts changed)
+        await cacheService.deletePattern('creators:list:*');
+        // Invalidate public profile cache (follower count changed)
+        await cacheService.delete(`public:profile:${userId}`);
+      } catch (err) {
+        console.error('Error invalidating caches after unfollow:', err);
+      }
+    });
+
     res.json({
       success: true,
       message: 'You have unfollowed this user'
@@ -733,57 +839,44 @@ router.post('/:userId/unfollow', authenticateToken, async (req, res) => {
   }
 });
 
-// Get public profile
+// Get public profile (with write-through cache)
 router.get('/:userId/public-profile', authenticateToken, async (req, res) => {
   try {
     const { userId } = req.params;
+    const cacheKey = `public:profile:${userId}`;
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        username: true,
-        displayName: true,
-        bio: true,
-        avatarUrl: true,
-        avatarData: true,
-        avatarType: true,
-        role: true,
-        points: true,
-        createdAt: true,
-        _count: {
-          select: {
-            followers: true,
-            following: true,
-            authoredArticles: {
-              where: { status: 'published' }
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const cachedProfile = await cacheService.getOrSet(cacheKey, async () => {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          username: true,
+          displayName: true,
+          bio: true,
+          avatarUrl: true,
+          avatarData: true,
+          avatarType: true,
+          role: true,
+          points: true,
+          createdAt: true,
+          _count: {
+            select: {
+              followers: true,
+              following: true,
+              authoredArticles: {
+                where: { status: 'published' }
+              }
             }
           }
         }
-      }
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'USER_NOT_FOUND',
-        message: 'User not found'
       });
-    }
 
-    // Check if current user is following this user
-    const isFollowing = await prisma.follow.findUnique({
-      where: {
-        followerId_followingId: {
-          followerId: req.user.id,
-          followingId: userId
-        }
+      if (!user) {
+        throw new Error('USER_NOT_FOUND');
       }
-    });
 
-    res.json({
-      success: true,
-      data: {
+      return {
         id: user.id,
         username: user.username,
         displayName: user.displayName,
@@ -796,7 +889,24 @@ router.get('/:userId/public-profile', authenticateToken, async (req, res) => {
         followersCount: user._count.followers,
         followingCount: user._count.following,
         articlesCount: user._count.authoredArticles,
-        createdAt: user.createdAt,
+        createdAt: user.createdAt
+      };
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
+
+    // Check if current user is following this user (user-specific, not cached)
+    const isFollowing = await prisma.follow.findUnique({
+      where: {
+        followerId_followingId: {
+          followerId: req.user.id,
+          followingId: userId
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        ...cachedProfile,
         isFollowing: !!isFollowing
       }
     });
@@ -811,7 +921,7 @@ router.get('/:userId/public-profile', authenticateToken, async (req, res) => {
   }
 });
 
-// Get a user's published articles (public view)
+// Get a user's published articles (public view) (with write-through cache)
 router.get('/:userId/articles', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -820,66 +930,65 @@ router.get('/:userId/articles', async (req, res) => {
     const search = req.query.search || '';
     const offset = (page - 1) * limit;
 
-    // Verify user exists
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true }
-    });
+    // Create cache key based on user, page, limit, and search
+    const cacheKey = `public:articles:${userId}:${page}:${limit}:${search || 'all'}`;
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'USER_NOT_FOUND',
-        message: 'User not found'
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const result = await cacheService.getOrSet(cacheKey, async () => {
+      // Verify user exists
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true }
       });
-    }
 
-    // Build where clause for articles
-    const whereClause = { 
-      authorId: userId, 
-      status: 'published' 
-    };
-
-    // Add search functionality
-    if (search) {
-      whereClause.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { content: { contains: search, mode: 'insensitive' } }
-      ];
-    }
-
-    // Fetch published articles authored by this user
-    const articles = await prisma.article.findMany({
-      where: whereClause,
-      orderBy: { createdAt: 'desc' },
-      skip: offset,
-      take: limit,
-      select: {
-        id: true,
-        title: true,
-        content: true,
-        category: true,
-        sourceUrl: true,
-        sourceName: true,
-        pointsValue: true,
-        readTimeEstimate: true,
-        isFeatured: true,
-        imageUrl: true,
-        imageData: true,
-        imageType: true,
-        createdAt: true,
-        publishedAt: true,
-        status: true,
+      if (!user) {
+        throw new Error('USER_NOT_FOUND');
       }
-    });
 
-    const total = await prisma.article.count({
-      where: whereClause
-    });
+      // Build where clause for articles
+      const whereClause = { 
+        authorId: userId, 
+        status: 'published' 
+      };
 
-    return res.json({
-      success: true,
-      data: {
+      // Add search functionality
+      if (search) {
+        whereClause.OR = [
+          { title: { contains: search, mode: 'insensitive' } },
+          { content: { contains: search, mode: 'insensitive' } }
+        ];
+      }
+
+      // Fetch published articles authored by this user
+      const articles = await prisma.article.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: limit,
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          category: true,
+          sourceUrl: true,
+          sourceName: true,
+          pointsValue: true,
+          readTimeEstimate: true,
+          isFeatured: true,
+          imageUrl: true,
+          imageData: true,
+          imageType: true,
+          createdAt: true,
+          publishedAt: true,
+          status: true,
+        }
+      });
+
+      const total = await prisma.article.count({
+        where: whereClause
+      });
+
+      return {
         articles,
         pagination: {
           page,
@@ -887,7 +996,12 @@ router.get('/:userId/articles', async (req, res) => {
           total,
           totalPages: Math.ceil(total / limit)
         }
-      }
+      };
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
+
+    return res.json({
+      success: true,
+      data: result
     });
   } catch (error) {
     console.error('Get user published articles error:', error);

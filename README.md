@@ -4,12 +4,12 @@ Backend API for the Buzznob mobile read-to-earn platform.
 
 ## 🛠️ Technology Stack
 
-- **Node.js** with Express.js
-- **PostgreSQL** database with Prisma ORM
-- **JWT** authentication
-- **Google OAuth 2.0** integration
-- **Solana** wallet integration
-- **Redis** for caching and session management
+-Node.js** with Express.js
+-PostgreSQL** database with Prisma ORM
+-JWT** authentication
+-Google OAuth 2.0** integration
+-Solana** wallet integration
+-Redis** for caching and session management
 
 ## 🚀 Quick Start
 
@@ -20,12 +20,12 @@ Backend API for the Buzznob mobile read-to-earn platform.
 
 ### Installation
 
-1. **Install dependencies**
+1.Install dependencies**
    ```bash
    npm install
    ```
 
-2. **Set up environment variables**
+2.Set up environment variables**
    ```bash
    cp .env.example .env
    ```
@@ -38,14 +38,14 @@ Backend API for the Buzznob mobile read-to-earn platform.
    GOOGLE_CLIENT_SECRET="your-google-client-secret"
    ```
 
-3. **Set up database**
+3.Set up database**
    ```bash
    npm run db:generate
    npm run db:migrate
    npm run db:seed
    ```
 
-4. **Start development server**
+4.Start development server**
    ```bash
    npm run dev
    ```
@@ -123,13 +123,13 @@ npm run health
 ## 🗄️ Database Schema
 
 ### Core Tables
-- **users** - User accounts and profiles
-- **articles** - Content from various sources
-- **user_activities** - Reading history and points
-- **rewards** - Reward system and redemptions
-- **badges** - Achievement system
-- **refresh_tokens** - JWT refresh tokens
-- **leaderboards** - Gamification data
+-users** - User accounts and profiles
+-articles** - Content from various sources
+-user_activities** - Reading history and points
+-rewards** - Reward system and redemptions
+-badges** - Achievement system
+-refresh_tokens** - JWT refresh tokens
+-leaderboards** - Gamification data
 
 ## 🔐 Authentication
 
@@ -231,17 +231,17 @@ docker-compose up -d
 
 ### Common Issues
 
-1. **Database Connection Error**
+1.Database Connection Error**
    - Check PostgreSQL is running
    - Verify DATABASE_URL is correct
    - Run `npm run db:migrate`
 
-2. **Google OAuth Error**
+2.Google OAuth Error**
    - Verify GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET
    - Check callback URL configuration
    - Ensure OAuth consent screen is set up
 
-3. **JWT Token Error**
+3.JWT Token Error**
    - Verify JWT_SECRET is set
    - Check token expiration
    - Ensure proper token format

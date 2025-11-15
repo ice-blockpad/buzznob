@@ -3,16 +3,19 @@ const { prisma } = require('../config/database');
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const { deduplicateRequest } = require('../middleware/deduplication');
+const cacheService = require('../services/cacheService');
+const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
 
 const router = express.Router();
 
-// Get trending articles
+// Get trending articles (with write-through cache)
 router.get('/trending', optionalAuth, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 10;
-    const requestKey = `trending:${limit}`;
+    const cacheKey = `articles:trending:${limit}`;
 
-    const articlesWithReadCount = await deduplicateRequest(requestKey, async () => {
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const articlesWithReadCount = await cacheService.getOrSet(cacheKey, async () => {
       const articles = await prisma.article.findMany({
         where: {
           isFeatured: true,
@@ -32,19 +35,19 @@ router.get('/trending', optionalAuth, async (req, res) => {
           isFeatured: true,
           manualReadCount: true,
           imageUrl: true,
-        imageData: true,
-        imageType: true,
-        createdAt: true,
-        author: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            role: true
+          imageData: true,
+          imageType: true,
+          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              role: true
+            }
           }
         }
-      }
-    });
+      });
 
       // Get read counts for all articles
       const articleIds = articles.map(a => a.id);
@@ -74,7 +77,7 @@ router.get('/trending', optionalAuth, async (req, res) => {
           readCount
         };
       });
-    });
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
 
     res.json({
       success: true,
@@ -91,13 +94,14 @@ router.get('/trending', optionalAuth, async (req, res) => {
   }
 });
 
-// Get featured articles
+// Get featured articles (with write-through cache)
 router.get('/featured', optionalAuth, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 10;
-    const requestKey = `featured:${limit}`;
+    const cacheKey = `articles:featured:${limit}`;
 
-    const articlesWithReadCount = await deduplicateRequest(requestKey, async () => {
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const articlesWithReadCount = await cacheService.getOrSet(cacheKey, async () => {
       const articles = await prisma.article.findMany({
         where: {
           isFeaturedArticle: true,
@@ -160,7 +164,7 @@ router.get('/featured', optionalAuth, async (req, res) => {
           readCount
         };
       });
-    });
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
 
     res.json({
       success: true,
@@ -662,40 +666,143 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
       });
     }
 
-    // Create user activity
-    const activity = await prisma.userActivity.create({
-      data: {
-        userId,
-        articleId: id,
-        pointsEarned: article.pointsValue,
-        readDuration: readDuration || null
-      }
-    });
-
-    // Update user points
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        points: {
-          increment: article.pointsValue
+    // Use transaction to atomically create activity and update points
+    // This prevents race conditions where user could read same article twice or bypass daily limit
+    const activity = await prisma.$transaction(async (tx) => {
+      // Re-fetch article inside transaction to prevent TOCTOU vulnerability
+      // This ensures we use the current pointsValue even if admin updates it between initial fetch and transaction
+      const articleInTx = await tx.article.findFirst({
+        where: { 
+          id,
+          status: 'published' // Double-check article is still published
+        },
+        select: {
+          id: true,
+          pointsValue: true,
+          status: true
         }
+      });
+
+      if (!articleInTx) {
+        throw new Error('ARTICLE_NOT_FOUND_OR_UNPUBLISHED');
       }
+
+      // Double-check if article already read within transaction
+      const existingActivityInTx = await tx.userActivity.findFirst({
+        where: {
+          userId,
+          articleId: id
+        }
+      });
+
+      if (existingActivityInTx) {
+        throw new Error('ARTICLE_ALREADY_READ');
+      }
+
+      // Double-check daily limit within transaction
+      const todayActivitiesInTx = await tx.userActivity.count({
+        where: {
+          userId,
+          completedAt: {
+            gte: today,
+            lt: tomorrow
+          }
+        }
+      });
+
+      if (todayActivitiesInTx >= 3) {
+        throw new Error('DAILY_ARTICLE_LIMIT_REACHED');
+      }
+
+      // Create user activity and update points atomically using current pointsValue
+      const newActivity = await tx.userActivity.create({
+        data: {
+          userId,
+          articleId: id,
+          pointsEarned: articleInTx.pointsValue, // Use pointsValue from transaction
+          readDuration: readDuration || null
+        }
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          points: {
+            increment: articleInTx.pointsValue // Use pointsValue from transaction
+          }
+        }
+      });
+
+      return { activity: newActivity, pointsEarned: articleInTx.pointsValue };
     });
 
     // Check for badge eligibility
     await achievementsService.checkBadgeEligibility(userId);
 
+    // Write-through cache: Refresh read count and user profile cache
+    // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
+    setImmediate(async () => {
+      try {
+        // Refresh read count cache
+        const readCount = await prisma.userActivity.count({
+          where: { articleId: id }
+        });
+        const articleData = await prisma.article.findUnique({
+          where: { id },
+          select: { manualReadCount: true }
+        });
+        const actualCount = articleData?.manualReadCount !== null ? articleData.manualReadCount : readCount;
+        await cacheService.writeThroughReadCount(id, async () => actualCount, 3600); // 1 hour TTL
+        
+        // Refresh user profile cache (points changed)
+        // Leaderboard will update automatically every 10 minutes
+        await refreshUserAndLeaderboardCaches(userId);
+      } catch (err) {
+        console.error('Error refreshing caches after article read:', err);
+      }
+    });
+
     res.json({
       success: true,
       message: 'Article marked as read',
       data: {
-        pointsEarned: article.pointsValue,
-        totalPoints: req.user.points + article.pointsValue
+        pointsEarned: activity.pointsEarned,
+        totalPoints: req.user.points + activity.pointsEarned
       }
     });
 
   } catch (error) {
     console.error('Mark article as read error:', error);
+    
+    // Handle specific errors from transaction
+    if (error.message === 'ARTICLE_NOT_FOUND_OR_UNPUBLISHED') {
+      return res.status(404).json({
+        success: false,
+        error: 'ARTICLE_NOT_FOUND',
+        message: 'Article not found or has been unpublished'
+      });
+    }
+    
+    if (error.message === 'ARTICLE_ALREADY_READ') {
+      return res.status(400).json({
+        success: false,
+        error: 'ARTICLE_ALREADY_READ',
+        message: 'Article has already been read'
+      });
+    }
+    
+    if (error.message === 'DAILY_ARTICLE_LIMIT_REACHED') {
+      return res.status(400).json({
+        success: false,
+        error: 'DAILY_ARTICLE_LIMIT_REACHED',
+        message: 'You have reached the daily reward limit of 3 articles. Come back tomorrow to earn more rewards!',
+        data: {
+          articlesReadToday: 3,
+          dailyLimit: 3
+        }
+      });
+    }
+    
     res.status(500).json({
       success: false,
       error: 'ARTICLE_READ_ERROR',

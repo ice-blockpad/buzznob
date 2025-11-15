@@ -3,6 +3,7 @@ const { prisma } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const { deduplicateRequest } = require('../middleware/deduplication');
+const cacheService = require('../services/cacheService');
 
 const router = express.Router();
 
@@ -57,6 +58,15 @@ router.post('/generate-code', authenticateToken, async (req, res) => {
       data: { referralCode }
     });
 
+    // Write-through cache: Invalidate referral code cache (if cached)
+    setImmediate(async () => {
+      try {
+        await cacheService.delete(`referral:code:${userId}`);
+      } catch (err) {
+        console.error('Error invalidating referral code cache:', err);
+      }
+    });
+
     res.json({
       success: true,
       message: 'Referral code generated successfully',
@@ -77,13 +87,23 @@ router.post('/generate-code', authenticateToken, async (req, res) => {
 router.get('/my-code', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
+    const cacheKey = `referral:code:${userId}`;
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { referralCode: true }
-    });
+    // Write-through cache: Get from cache or fetch and cache (1 hour TTL)
+    const referralCode = await cacheService.getOrSet(cacheKey, async () => {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { referralCode: true }
+      });
 
-    if (!user.referralCode) {
+      if (!user.referralCode) {
+        return null;
+      }
+
+      return user.referralCode;
+    }, 3600); // 1 hour TTL
+
+    if (!referralCode) {
       return res.status(404).json({
         success: false,
         error: 'REFERRAL_CODE_NOT_FOUND',
@@ -93,7 +113,7 @@ router.get('/my-code', authenticateToken, async (req, res) => {
 
     res.json({
       success: true,
-      data: { referralCode: user.referralCode }
+      data: { referralCode }
     });
 
   } catch (error) {
@@ -111,9 +131,10 @@ router.get('/my-code', authenticateToken, async (req, res) => {
 router.get('/stats', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const requestKey = `referral:stats:${userId}`;
+    const cacheKey = `referral:stats:${userId}`;
 
-    const stats = await deduplicateRequest(requestKey, async () => {
+    // Write-through cache: Get from cache or fetch and cache (1 hour TTL)
+    const stats = await cacheService.getOrSet(cacheKey, async () => {
       // Single optimized query to get all referral data
       const result = await prisma.$queryRaw`
         WITH referral_stats AS (
@@ -187,7 +208,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
         activeCount: parseInt(data.active_count) || 0,
         inactiveCount: parseInt(data.inactive_count) || 0
       };
-    });
+    }, 3600); // 1 hour TTL
 
     res.json({
       success: true,
@@ -210,59 +231,60 @@ router.get('/history', authenticateToken, async (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
+    const cacheKey = `referral:history:${userId}:page:${page}:limit:${limit}`;
 
-    const referrals = await prisma.user.findMany({
-      where: { referredBy: userId },
-      select: {
-        id: true,
-        username: true,
-        displayName: true,
-        avatarUrl: true,
-        avatarData: true,
-        points: true,
-        role: true,
-        createdAt: true,
-        miningSessions: {
-          where: { isActive: true },
-          orderBy: { startedAt: 'desc' },
-          take: 1,
-          select: {
-            startedAt: true,
-            duration: true
+    // Write-through cache: Get from cache or fetch and cache (1 hour TTL)
+    const historyData = await cacheService.getOrSet(cacheKey, async () => {
+      const referrals = await prisma.user.findMany({
+        where: { referredBy: userId },
+        select: {
+          id: true,
+          username: true,
+          displayName: true,
+          avatarUrl: true,
+          avatarData: true,
+          points: true,
+          role: true,
+          createdAt: true,
+          miningSessions: {
+            where: { isActive: true },
+            orderBy: { startedAt: 'desc' },
+            take: 1,
+            select: {
+              startedAt: true,
+              duration: true
+            }
           }
-        }
-      },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit
-    });
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit
+      });
 
-    // Add mining status based on active mining sessions (active if mining started within last 6 hours)
-    const now = new Date();
-    const sixHoursAgo = new Date(now - 6 * 60 * 60 * 1000);
-    
-    const referralsWithStatus = referrals.map(referral => {
-      const latestMiningSession = referral.miningSessions[0];
-      const isActive = latestMiningSession && latestMiningSession.startedAt >= sixHoursAgo;
+      // Add mining status based on active mining sessions (active if mining started within last 6 hours)
+      const now = new Date();
+      const sixHoursAgo = new Date(now - 6 * 60 * 60 * 1000);
       
+      const referralsWithStatus = referrals.map(referral => {
+        const latestMiningSession = referral.miningSessions[0];
+        const isActive = latestMiningSession && latestMiningSession.startedAt >= sixHoursAgo;
+        
+        return {
+          ...referral,
+          isActive,
+          miningSessions: undefined // Remove from response
+        };
+      });
+
+      const totalCount = await prisma.user.count({
+        where: { referredBy: userId }
+      });
+
+      // Count active and inactive referrals
+      const activeCount = referralsWithStatus.filter(r => r.isActive).length;
+      const inactiveCount = referralsWithStatus.filter(r => !r.isActive).length;
+
       return {
-        ...referral,
-        isActive,
-        miningSessions: undefined // Remove from response
-      };
-    });
-
-    const totalCount = await prisma.user.count({
-      where: { referredBy: userId }
-    });
-
-    // Count active and inactive referrals
-    const activeCount = referralsWithStatus.filter(r => r.isActive).length;
-    const inactiveCount = referralsWithStatus.filter(r => !r.isActive).length;
-
-    res.json({
-      success: true,
-      data: {
         referrals: referralsWithStatus,
         activeCount,
         inactiveCount,
@@ -272,7 +294,12 @@ router.get('/history', authenticateToken, async (req, res) => {
           total: totalCount,
           pages: Math.ceil(totalCount / limit)
         }
-      }
+      };
+    }, 3600); // 1 hour TTL
+
+    res.json({
+      success: true,
+      data: historyData
     });
 
   } catch (error) {

@@ -177,29 +177,69 @@ async function checkAndAwardAchievement(userId, achievement, userData) {
  */
 async function awardBadge(userId, badge) {
   try {
-    // Create user badge record
-    await prisma.userBadge.create({
-      data: {
-        userId,
-        badgeId: badge.id
+    // Use transaction to atomically create badge and award points
+    // This prevents race conditions where checkBadgeEligibility is called multiple times simultaneously
+    await prisma.$transaction(async (tx) => {
+      // Double-check if user already has this badge within transaction
+      // This prevents duplicate badges if awardBadge is called multiple times concurrently
+      const existingUserBadge = await tx.userBadge.findFirst({
+        where: {
+          userId,
+          badgeId: badge.id
+        }
+      });
+
+      if (existingUserBadge) {
+        // User already has this badge, skip awarding
+        console.log(`⏭️  User ${userId} already has badge "${badge.name}", skipping`);
+        return;
+      }
+
+      // Create user badge record atomically
+      await tx.userBadge.create({
+        data: {
+          userId,
+          badgeId: badge.id
+        }
+      });
+
+      // Award points for earning the badge (based on badge's pointsRequired)
+      if (badge.pointsRequired && badge.pointsRequired > 0) {
+        await tx.user.update({
+          where: { id: userId },
+          data: {
+            points: {
+              increment: badge.pointsRequired
+            }
+          }
+        });
+      }
+
+      console.log(`🏆 Awarded badge "${badge.name}" to user ${userId} (+${badge.pointsRequired} points)`);
+    });
+
+    // Write-through cache: Refresh user profile and achievement caches
+    // (achievementsCount changed, and points may have changed)
+    // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
+    const { refreshUserAndLeaderboardCaches } = require('./cacheRefreshHelpers');
+    const cacheService = require('./cacheService');
+    setImmediate(async () => {
+      try {
+        // Refresh user profile cache (points may have changed)
+        // Leaderboard will update automatically every 10 minutes
+        await refreshUserAndLeaderboardCaches(userId);
+        
+        // Refresh user achievements cache
+        await cacheService.delete(`achievements:${userId}`);
+        await cacheService.delete(`user:badges:${userId}`);
+        await cacheService.delete(`user:achievements:${userId}`);
+        await cacheService.delete(`admin:achievements:${userId}`);
+      } catch (err) {
+        console.error('Error refreshing caches after achievement award:', err);
       }
     });
 
-    // Award points for earning the badge (based on badge's pointsRequired)
-    if (badge.pointsRequired && badge.pointsRequired > 0) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          points: {
-            increment: badge.pointsRequired
-          }
-        }
-      });
-    }
-
-    console.log(`🏆 Awarded badge "${badge.name}" to user ${userId} (+${badge.pointsRequired} points)`);
-
-    // Send push notification when achievement is unlocked
+    // Send push notification when achievement is unlocked (after transaction completes)
     setImmediate(() => {
       pushNotificationService.sendAchievementUnlockedNotification(
         userId,
@@ -209,6 +249,11 @@ async function awardBadge(userId, badge) {
     });
 
   } catch (error) {
+    // Handle unique constraint violation (user already has badge) gracefully
+    if (error.code === 'P2002') {
+      console.log(`⏭️  User ${userId} already has badge "${badge.name}" (unique constraint)`);
+      return;
+    }
     console.error(`Error awarding badge "${badge.name}":`, error);
   }
 }

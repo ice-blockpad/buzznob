@@ -4,6 +4,8 @@ const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const { deduplicateRequest, clearCachePattern } = require('../middleware/deduplication');
 const upload = require('../middleware/upload');
+const cacheService = require('../services/cacheService');
+const { fetchTrendingArticles, fetchFeaturedArticles } = require('../services/articleCacheHelpers');
 
 const router = express.Router();
 
@@ -303,7 +305,7 @@ router.delete('/users/:userId', authenticateToken, requireAdmin, async (req, res
   }
 });
 
-// Get user achievements (admin)
+// Get user achievements (admin) (with write-through cache)
 router.get('/users/:userId/achievements', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { userId } = req.params;
@@ -320,16 +322,20 @@ router.get('/users/:userId/achievements', authenticateToken, requireAdmin, async
       });
     }
 
-    // Get user achievements with badge details
-    const userAchievements = await prisma.userBadge.findMany({
-      where: { userId: userId },
-      include: {
-        badge: true
-      },
-      orderBy: {
-        earnedAt: 'desc'
-      }
-    });
+    const cacheKey = `admin:achievements:${userId}`;
+
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const userAchievements = await cacheService.getOrSet(cacheKey, async () => {
+      return await prisma.userBadge.findMany({
+        where: { userId: userId },
+        include: {
+          badge: true
+        },
+        orderBy: {
+          earnedAt: 'desc'
+        }
+      });
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
 
     res.json({
       success: true,
@@ -425,13 +431,52 @@ router.patch('/users/:userId/achievements/:achievementId', authenticateToken, re
       message = `Achievement unlocked and ${achievement.pointsValue} points added to user balance`;
     }
 
-    // Update user points
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        points: {
-          increment: pointsChange
+    // Use transaction to atomically update user points and achievement status
+    // This prevents race conditions if admin toggles achievement multiple times rapidly
+    await prisma.$transaction(async (tx) => {
+      // Re-fetch achievement and user within transaction to get latest state
+      const achievementInTx = await tx.badge.findUnique({
+        where: { id: achievementId }
+      });
+
+      const userInTx = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true }
+      });
+
+      if (!achievementInTx) {
+        throw new Error('ACHIEVEMENT_NOT_FOUND');
+      }
+
+      if (!userInTx) {
+        throw new Error('USER_NOT_FOUND');
+      }
+
+      // Update user points atomically
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          points: {
+            increment: pointsChange
+          }
         }
+      });
+    });
+
+    // Write-through cache: Refresh user profile and achievement caches
+    // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
+    setImmediate(async () => {
+      try {
+        const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+        await refreshUserAndLeaderboardCaches(userId);
+        
+        // Refresh user achievements cache
+        await cacheService.delete(`achievements:${userId}`);
+        await cacheService.delete(`user:badges:${userId}`);
+        await cacheService.delete(`user:achievements:${userId}`);
+        await cacheService.delete(`admin:achievements:${userId}`);
+      } catch (err) {
+        console.error('Error refreshing caches after achievement toggle:', err);
       }
     });
 
@@ -447,6 +492,24 @@ router.patch('/users/:userId/achievements/:achievementId', authenticateToken, re
 
   } catch (error) {
     console.error('Toggle user achievement error:', error);
+    
+    // Handle specific errors
+    if (error.message === 'ACHIEVEMENT_NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        error: 'ACHIEVEMENT_NOT_FOUND',
+        message: 'Achievement not found'
+      });
+    }
+    
+    if (error.message === 'USER_NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: 'User not found'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       error: 'ADMIN_ACHIEVEMENT_TOGGLE_ERROR',
@@ -767,6 +830,27 @@ router.post('/articles', authenticateToken, debugMiddleware, upload.fields([{ na
       }
     });
 
+    // Write-through cache: Refresh article caches and invalidate portal caches if article is published
+    if (articleStatus === 'published') {
+      setImmediate(async () => {
+        try {
+          await cacheService.refreshArticleCaches(
+            fetchTrendingArticles,
+            fetchFeaturedArticles,
+            article.id
+          );
+          // Invalidate creator articles cache (if author is creator)
+          await cacheService.deletePattern(`creator:articles:${userId}:*`);
+          // Invalidate public articles cache (new published article)
+          await cacheService.deletePattern(`public:articles:${userId}:*`);
+          // Invalidate public profile cache (articles count changed)
+          await cacheService.delete(`public:profile:${userId}`);
+        } catch (err) {
+          console.error('Error refreshing caches after create:', err);
+        }
+      });
+    }
+
     res.json({
       success: true,
       message: 'Article created successfully',
@@ -949,6 +1033,21 @@ router.put('/articles/:id', authenticateToken, async (req, res) => {
       data: updateData
     });
 
+    // Write-through cache: Refresh article caches if article is published
+    if (article.status === 'published') {
+      setImmediate(async () => {
+        try {
+          await cacheService.refreshArticleCaches(
+            fetchTrendingArticles,
+            fetchFeaturedArticles,
+            article.id
+          );
+        } catch (err) {
+          console.error('Error refreshing article caches after update:', err);
+        }
+      });
+    }
+
     res.json({
       success: true,
       message: 'Article updated successfully',
@@ -993,6 +1092,21 @@ router.patch('/articles/:id/trending', authenticateToken, requireAdmin, async (r
       data: { isFeatured }
     });
 
+    // Write-through cache: Refresh article caches after trending toggle
+    if (article.status === 'published') {
+      setImmediate(async () => {
+        try {
+          await cacheService.refreshArticleCaches(
+            fetchTrendingArticles,
+            fetchFeaturedArticles,
+            article.id
+          );
+        } catch (err) {
+          console.error('Error refreshing article caches after trending toggle:', err);
+        }
+      });
+    }
+
     res.json({
       success: true,
       message: `Article ${isFeatured ? 'set as trending' : 'removed from trending'} successfully`,
@@ -1036,12 +1150,24 @@ router.patch('/articles/:id/read-count', authenticateToken, requireAdmin, async 
     const article = await prisma.article.update({
       where: { id },
       data: { manualReadCount: readCount },
-      select: { id: true, title: true, manualReadCount: true }
+      select: { id: true, title: true, manualReadCount: true, status: true }
     });
 
-    // Clear pending requests for trending and featured articles that might include this article
-    clearCachePattern('trending:');
-    clearCachePattern('featured:');
+    // Write-through cache: Refresh read count and article caches
+    setImmediate(async () => {
+      try {
+        await cacheService.refreshReadCount(id, async () => readCount, 3600); // 1 hour TTL
+        if (article.status === 'published') {
+          await cacheService.refreshArticleCaches(
+            fetchTrendingArticles,
+            fetchFeaturedArticles,
+            id
+          );
+        }
+      } catch (err) {
+        console.error('Error refreshing caches after read count update:', err);
+      }
+    });
 
     res.json({
       success: true,
@@ -1071,12 +1197,24 @@ router.patch('/articles/:id/read-count/reset', authenticateToken, requireAdmin, 
     const article = await prisma.article.update({
       where: { id },
       data: { manualReadCount: null },
-      select: { id: true, title: true, manualReadCount: true }
+      select: { id: true, title: true, manualReadCount: true, status: true }
     });
 
-    // Clear pending requests for trending and featured articles that might include this article
-    clearCachePattern('trending:');
-    clearCachePattern('featured:');
+    // Write-through cache: Refresh read count and article caches
+    setImmediate(async () => {
+      try {
+        await cacheService.refreshReadCount(id, async () => actualCount, 3600); // 1 hour TTL
+        if (article.status === 'published') {
+          await cacheService.refreshArticleCaches(
+            fetchTrendingArticles,
+            fetchFeaturedArticles,
+            id
+          );
+        }
+      } catch (err) {
+        console.error('Error refreshing caches after read count reset:', err);
+      }
+    });
 
     res.json({
       success: true,
@@ -1136,6 +1274,21 @@ router.patch('/articles/:id/featured', authenticateToken, requireAdmin, async (r
       where: { id },
       data: { isFeaturedArticle }
     });
+
+    // Write-through cache: Refresh article caches after featured toggle
+    if (article.status === 'published') {
+      setImmediate(async () => {
+        try {
+          await cacheService.refreshArticleCaches(
+            fetchTrendingArticles,
+            fetchFeaturedArticles,
+            article.id
+          );
+        } catch (err) {
+          console.error('Error refreshing article caches after featured toggle:', err);
+        }
+      });
+    }
 
     res.json({
       success: true,
@@ -1199,6 +1352,19 @@ router.delete('/articles/:id', authenticateToken, requireAdmin, async (req, res)
     });
 
     console.log(`Article ${id} deleted successfully by admin ${userId}`);
+
+    // Write-through cache: Refresh article caches after deletion
+    setImmediate(async () => {
+      try {
+        await cacheService.refreshArticleCaches(
+          fetchTrendingArticles,
+          fetchFeaturedArticles,
+          id
+        );
+      } catch (err) {
+        console.error('Error refreshing article caches after delete:', err);
+      }
+    });
 
     res.json({
       success: true,
@@ -1274,6 +1440,25 @@ router.patch('/articles/:id/approve', authenticateToken, requireAdmin, async (re
     });
 
     console.log(`Article ${id} approved and published by admin ${userId}`);
+
+    // Write-through cache: Refresh article caches and invalidate portal caches after publishing
+    setImmediate(async () => {
+      try {
+        await cacheService.refreshArticleCaches(
+          fetchTrendingArticles,
+          fetchFeaturedArticles,
+          updatedArticle.id
+        );
+        // Invalidate creator articles cache (article now published)
+        await cacheService.deletePattern(`creator:articles:${article.authorId}:*`);
+        // Invalidate public articles cache (new published article)
+        await cacheService.deletePattern(`public:articles:${article.authorId}:*`);
+        // Invalidate public profile cache (articles count changed)
+        await cacheService.delete(`public:profile:${article.authorId}`);
+      } catch (err) {
+        console.error('Error refreshing caches after approve:', err);
+      }
+    });
 
     res.json({
       success: true,

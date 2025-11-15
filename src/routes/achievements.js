@@ -2,14 +2,20 @@ const express = require('express');
 const { prisma } = require('../config/database');
 const { authenticateToken } = require('../middleware/auth');
 const achievementsService = require('../services/achievements');
+const cacheService = require('../services/cacheService');
 
 const router = express.Router();
 
-// Get user's achievements
+// Get user's achievements (with write-through cache)
 router.get('/my-achievements', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const achievements = await achievementsService.getUserAchievements(userId);
+    const cacheKey = `achievements:${userId}`;
+
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const achievements = await cacheService.getOrSet(cacheKey, async () => {
+      return await achievementsService.getUserAchievements(userId);
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
 
     res.json({
       success: true,
@@ -47,12 +53,17 @@ router.post('/check', authenticateToken, async (req, res) => {
   }
 });
 
-// Get all available badges
+// Get all available badges (with write-through cache)
 router.get('/badges', authenticateToken, async (req, res) => {
   try {
-    const badges = await prisma.badge.findMany({
-      orderBy: { pointsRequired: 'asc' }
-    });
+    const cacheKey = 'badges:all';
+
+    // Write-through cache: Get from cache, or fetch from DB and cache
+    const badges = await cacheService.getOrSet(cacheKey, async () => {
+      return await prisma.badge.findMany({
+        orderBy: { pointsRequired: 'asc' }
+      });
+    }, 3600); // 1 hour TTL (write-through cache with safety net)
 
     res.json({
       success: true,

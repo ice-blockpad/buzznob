@@ -4,6 +4,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const { deduplicateRequest } = require('../middleware/deduplication');
 const pushNotificationService = require('../services/pushNotificationService');
+const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
 
 const router = express.Router();
 
@@ -552,6 +553,14 @@ router.post('/claim', authenticateToken, async (req, res) => {
     setImmediate(() => {
       achievementsService.checkBadgeEligibility(userId).catch(err => {
         console.error('Failed to check mining achievements:', err);
+      });
+    });
+
+    // Write-through cache: Refresh user profile cache after points change
+    // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
+    setImmediate(() => {
+      refreshUserAndLeaderboardCaches(userId).catch(err => {
+        console.error('Error refreshing caches after mining claim:', err);
       });
     });
 
