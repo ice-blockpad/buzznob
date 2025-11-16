@@ -58,14 +58,16 @@ router.post('/generate-code', authenticateToken, async (req, res) => {
       data: { referralCode }
     });
 
-    // Write-through cache: Invalidate referral code cache (if cached)
-    setImmediate(async () => {
-      try {
-        await cacheService.delete(`referral:code:${userId}`);
-      } catch (err) {
-        console.error('Error invalidating referral code cache:', err);
-      }
-    });
+    // Write-through cache: Invalidate referral code cache SYNCHRONOUSLY (if cached)
+    try {
+      await cacheService.delete(`referral:code:${userId}`);
+      // Also refresh user profile cache (referralCode is part of profile)
+      const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+      await refreshUserAndLeaderboardCaches(userId);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating referral code cache:', err);
+    }
 
     res.json({
       success: true,

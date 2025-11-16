@@ -401,18 +401,22 @@ router.post('/finalize-account', async (req, res) => {
         if (referrer) {
           console.log(`✅ Referral reward processed: ${referrer.email} -> ${user.email}`);
           
-          // Write-through cache: Refresh caches for both referrer and referee (points changed)
+          // Write-through cache: Refresh caches for both referrer and referee SYNCHRONOUSLY (points changed)
+          // This ensures cache is updated before response is sent, preventing stale data window
           const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
           const cacheService = require('../services/cacheService');
-          setImmediate(() => {
-            Promise.all([
+          try {
+            await Promise.all([
               refreshUserAndLeaderboardCaches(referrer.id),
               refreshUserAndLeaderboardCaches(user.id),
               // Invalidate referral stats and history caches for the referrer
               cacheService.delete(`referral:stats:${referrer.id}`),
               cacheService.deletePattern(`referral:history:${referrer.id}:*`)
-            ]).catch(err => console.error('Error refreshing caches after referral:', err));
-          });
+            ]);
+          } catch (err) {
+            // Non-blocking: Log error but don't fail the request
+            console.error('Error refreshing caches after referral:', err);
+          }
           
           // Send push notification to referrer about new referral
           setImmediate(() => {
@@ -456,6 +460,23 @@ router.post('/finalize-account', async (req, res) => {
         expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
       }
     });
+
+    // Write-through cache: Invalidate admin user list cache SYNCHRONOUSLY (new user created)
+    // Note: No need to refresh user profile cache yet as user just created (no cache exists)
+    try {
+      const cacheService = require('../services/cacheService');
+      // Invalidate admin user list cache (user count changed)
+      await cacheService.deletePattern('admin:users:*');
+      // Invalidate admin stats cache (user count changed)
+      await cacheService.delete('admin:stats');
+      // Invalidate creators list cache (if user is creator/admin)
+      if (user.role === 'creator' || user.role === 'admin') {
+        await cacheService.deletePattern('creators:list:*');
+      }
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating caches after user creation:', err);
+    }
 
     res.json({
       success: true,

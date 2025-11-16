@@ -71,6 +71,18 @@ router.post('/submit', authenticateToken, async (req, res) => {
       }
     });
 
+    // Write-through cache: Refresh user profile cache SYNCHRONOUSLY (kycStatus changed)
+    try {
+      const cacheService = require('../services/cacheService');
+      const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+      await refreshUserAndLeaderboardCaches(userId);
+      // Invalidate admin user cache (KYC status changed)
+      await cacheService.delete(`admin:user:${userId}`);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after KYC submission:', err);
+    }
+
     res.json({
       success: true,
       message: 'KYC application submitted successfully',
@@ -308,6 +320,19 @@ router.put('/admin/:submissionId/review', authenticateToken, async (req, res) =>
         isVerified: status === 'verified'
       }
     });
+
+    // Write-through cache: Refresh user profile cache SYNCHRONOUSLY (kycStatus and isVerified changed)
+    // This ensures cache is updated before response is sent, preventing stale data window
+    try {
+      const cacheService = require('../services/cacheService');
+      const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+      await refreshUserAndLeaderboardCaches(kycSubmission.userId);
+      // Invalidate admin user cache (KYC status changed)
+      await cacheService.delete(`admin:user:${kycSubmission.userId}`);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after KYC review:', err);
+    }
 
     res.json({
       success: true,

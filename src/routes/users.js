@@ -138,16 +138,16 @@ router.put('/profile', authenticateToken, async (req, res) => {
 
     const profileData = { ...updatedUser, rank: userRank };
 
-    // Write-through cache: Refresh user profile cache and invalidate public profile cache
-    setImmediate(async () => {
-      try {
-        await cacheService.refreshUserProfile(req.user.id, async () => profileData);
-        // Invalidate public profile cache (profile data changed)
-        await cacheService.delete(`public:profile:${req.user.id}`);
-      } catch (err) {
-        console.error('Error refreshing user profile cache:', err);
-      }
-    });
+    // Write-through cache: Refresh user profile cache SYNCHRONOUSLY
+    // This ensures cache is updated before response is sent
+    try {
+      await cacheService.refreshUserProfile(req.user.id, profileData);
+      // Invalidate public profile cache (profile data changed)
+      await cacheService.delete(`public:profile:${req.user.id}`);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing user profile cache:', err);
+    }
 
     res.json({
       success: true,
@@ -261,16 +261,16 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
 
     const profileData = { ...updatedUser, rank: userRank };
 
-    // Write-through cache: Refresh user profile cache and invalidate public profile cache
-    setImmediate(async () => {
-      try {
-        await cacheService.refreshUserProfile(req.user.id, async () => profileData);
-        // Invalidate public profile cache (profile data changed)
-        await cacheService.delete(`public:profile:${req.user.id}`);
-      } catch (err) {
-        console.error('Error refreshing user profile cache:', err);
-      }
-    });
+    // Write-through cache: Refresh user profile cache SYNCHRONOUSLY
+    // This ensures cache is updated before response is sent
+    try {
+      await cacheService.refreshUserProfile(req.user.id, profileData);
+      // Invalidate public profile cache (profile data changed)
+      await cacheService.delete(`public:profile:${req.user.id}`);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing user profile cache:', err);
+    }
 
     res.json({
       success: true,
@@ -535,6 +535,18 @@ router.post('/upgrade-to-creator', authenticateToken, async (req, res) => {
       });
     });
 
+    // Write-through cache: Refresh user profile cache SYNCHRONOUSLY (role and points changed)
+    // This ensures cache is updated before response is sent, preventing stale data window
+    try {
+      const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+      await refreshUserAndLeaderboardCaches(userId);
+      // Invalidate creators list cache (new creator added)
+      await cacheService.deletePattern('creators:list:*');
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after creator upgrade:', err);
+    }
+
     res.json({
       success: true,
       message: 'Congratulations! You are now a Creator!',
@@ -578,6 +590,25 @@ router.delete('/account', authenticateToken, async (req, res) => {
     await prisma.user.delete({
       where: { id: userId }
     });
+
+    // Write-through cache: Invalidate all user-related caches SYNCHRONOUSLY
+    try {
+      // Invalidate user profile caches
+      await cacheService.delete(`profile:${userId}`);
+      await cacheService.delete(`public:profile:${userId}`);
+      await cacheService.delete(`admin:user:${userId}`);
+      // Invalidate creators list cache (if user was a creator)
+      await cacheService.deletePattern('creators:list:*');
+      // Invalidate admin user list cache
+      await cacheService.deletePattern('admin:users:*');
+      // Invalidate leaderboard caches (user deleted, rankings changed)
+      await cacheService.deletePattern('leaderboard:*');
+      // Invalidate admin stats cache (user count changed)
+      await cacheService.delete('admin:stats');
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating caches after account delete:', err);
+    }
 
     res.json({
       success: true,
@@ -751,17 +782,16 @@ router.post('/:userId/follow', authenticateToken, async (req, res) => {
       }
     });
 
-    // Write-through cache: Invalidate creators list and public profile caches (follower count changed)
-    setImmediate(async () => {
-      try {
-        // Invalidate creators list cache (follower counts changed)
-        await cacheService.deletePattern('creators:list:*');
-        // Invalidate public profile cache (follower count changed)
-        await cacheService.delete(`public:profile:${userId}`);
-      } catch (err) {
-        console.error('Error invalidating caches after follow:', err);
-      }
-    });
+    // Write-through cache: Invalidate creators list and public profile caches SYNCHRONOUSLY (follower count changed)
+    try {
+      // Invalidate creators list cache (follower counts changed)
+      await cacheService.deletePattern('creators:list:*');
+      // Invalidate public profile cache (follower count changed)
+      await cacheService.delete(`public:profile:${userId}`);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating caches after follow:', err);
+    }
 
     res.json({
       success: true,
@@ -812,17 +842,16 @@ router.post('/:userId/unfollow', authenticateToken, async (req, res) => {
       }
     });
 
-    // Write-through cache: Invalidate creators list and public profile caches (follower count changed)
-    setImmediate(async () => {
-      try {
-        // Invalidate creators list cache (follower counts changed)
-        await cacheService.deletePattern('creators:list:*');
-        // Invalidate public profile cache (follower count changed)
-        await cacheService.delete(`public:profile:${userId}`);
-      } catch (err) {
-        console.error('Error invalidating caches after unfollow:', err);
-      }
-    });
+    // Write-through cache: Invalidate creators list and public profile caches SYNCHRONOUSLY (follower count changed)
+    try {
+      // Invalidate creators list cache (follower counts changed)
+      await cacheService.deletePattern('creators:list:*');
+      // Invalidate public profile cache (follower count changed)
+      await cacheService.delete(`public:profile:${userId}`);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating caches after unfollow:', err);
+    }
 
     res.json({
       success: true,
@@ -1044,6 +1073,33 @@ router.post('/push-token', authenticateToken, async (req, res) => {
       success: false,
       error: 'PUSH_TOKEN_REGISTRATION_ERROR',
       message: 'Failed to register push token'
+    });
+  }
+});
+
+// Invalidate user profile cache (for frontend to call after point changes)
+router.post('/profile/invalidate-cache', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Delete user profile cache
+    await cacheService.delete(`profile:${userId}`);
+    
+    // Also delete public profile cache if it exists
+    await cacheService.delete(`public:profile:${userId}`);
+    
+    console.log(`🗑️  Invalidated profile cache for user ${userId} (requested by user)`);
+    
+    res.json({
+      success: true,
+      message: 'Profile cache invalidated successfully'
+    });
+  } catch (error) {
+    console.error('Invalidate cache error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'CACHE_INVALIDATION_ERROR',
+      message: 'Failed to invalidate cache'
     });
   }
 });

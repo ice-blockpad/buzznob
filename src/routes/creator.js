@@ -121,14 +121,13 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
       }
     });
 
-    // Write-through cache: Invalidate creator articles cache (new article added)
-    setImmediate(async () => {
-      try {
-        await cacheService.deletePattern(`creator:articles:${userId}:*`);
-      } catch (err) {
-        console.error('Error invalidating creator articles cache:', err);
-      }
-    });
+    // Write-through cache: Invalidate creator articles cache SYNCHRONOUSLY (new article added)
+    try {
+      await cacheService.deletePattern(`creator:articles:${userId}:*`);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating creator articles cache:', err);
+    }
 
     res.json({
       success: true,
@@ -279,14 +278,13 @@ router.put('/articles/:id', authenticateToken, requireCreator, async (req, res) 
       data: updateData
     });
 
-    // Write-through cache: Invalidate creator articles cache (article updated)
-    setImmediate(async () => {
-      try {
-        await cacheService.deletePattern(`creator:articles:${userId}:*`);
-      } catch (err) {
-        console.error('Error invalidating creator articles cache:', err);
-      }
-    });
+    // Write-through cache: Invalidate creator articles cache SYNCHRONOUSLY (article updated)
+    try {
+      await cacheService.deletePattern(`creator:articles:${userId}:*`);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating creator articles cache:', err);
+    }
 
     res.json({
       success: true,
@@ -339,19 +337,18 @@ router.delete('/articles/:id', authenticateToken, requireCreator, async (req, re
       where: { id }
     });
 
-    // Write-through cache: Invalidate creator articles cache (article deleted)
-    setImmediate(async () => {
-      try {
-        await cacheService.deletePattern(`creator:articles:${userId}:*`);
-        // Also invalidate public articles cache if article was published
-        if (article.status === 'published') {
-          await cacheService.deletePattern(`public:articles:${userId}:*`);
-          await cacheService.delete(`public:profile:${userId}`);
-        }
-      } catch (err) {
-        console.error('Error invalidating caches after article delete:', err);
+    // Write-through cache: Invalidate creator articles cache SYNCHRONOUSLY (article deleted)
+    try {
+      await cacheService.deletePattern(`creator:articles:${userId}:*`);
+      // Also invalidate public articles cache if article was published
+      if (article.status === 'published') {
+        await cacheService.deletePattern(`public:articles:${userId}:*`);
+        await cacheService.delete(`public:profile:${userId}`);
       }
-    });
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating caches after article delete:', err);
+    }
 
     res.json({
       success: true,

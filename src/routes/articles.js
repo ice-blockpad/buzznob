@@ -739,28 +739,28 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
     // Check for badge eligibility
     await achievementsService.checkBadgeEligibility(userId);
 
-    // Write-through cache: Refresh read count and user profile cache
+    // Write-through cache: Refresh read count and user profile cache SYNCHRONOUSLY
+    // This ensures cache is updated before response is sent, preventing stale data window
     // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
-    setImmediate(async () => {
-      try {
-        // Refresh read count cache
-        const readCount = await prisma.userActivity.count({
-          where: { articleId: id }
-        });
-        const articleData = await prisma.article.findUnique({
-          where: { id },
-          select: { manualReadCount: true }
-        });
-        const actualCount = articleData?.manualReadCount !== null ? articleData.manualReadCount : readCount;
-        await cacheService.writeThroughReadCount(id, async () => actualCount, 3600); // 1 hour TTL
-        
-        // Refresh user profile cache (points changed)
-        // Leaderboard will update automatically every 10 minutes
-        await refreshUserAndLeaderboardCaches(userId);
-      } catch (err) {
-        console.error('Error refreshing caches after article read:', err);
-      }
-    });
+    try {
+      // Refresh read count cache
+      const readCount = await prisma.userActivity.count({
+        where: { articleId: id }
+      });
+      const articleData = await prisma.article.findUnique({
+        where: { id },
+        select: { manualReadCount: true }
+      });
+      const actualCount = articleData?.manualReadCount !== null ? articleData.manualReadCount : readCount;
+      await cacheService.writeThroughReadCount(id, async () => actualCount, 3600); // 1 hour TTL
+      
+      // Refresh user profile cache (points changed)
+      // Leaderboard will update automatically every 10 minutes
+      await refreshUserAndLeaderboardCaches(userId);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after article read:', err);
+    }
 
     res.json({
       success: true,

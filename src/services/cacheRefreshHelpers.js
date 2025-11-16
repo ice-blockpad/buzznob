@@ -131,11 +131,12 @@ async function fetchLeaderboard(period, limit = 50) {
  */
 async function refreshUserAndLeaderboardCaches(userId) {
   try {
-    // Fetch fresh user profile
+    // Fetch fresh user profile from database
     const profileData = await fetchUserProfile(userId);
     
-    // Refresh user profile cache (2 min TTL)
-    await cacheService.refreshUserProfile(userId, async () => profileData);
+    // Write-through: Update cache directly with fresh data (no delete needed)
+    // Pass data directly instead of a function to avoid unnecessary re-fetch
+    await cacheService.refreshUserProfile(userId, profileData);
     
     // Leaderboard cache is now time-based (10 min TTL) - no refresh needed
     // It will automatically expire and refresh every 10 minutes

@@ -3,6 +3,7 @@ const { prisma } = require('../config/database');
 const { authenticateToken, optionalAuth } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const cacheService = require('../services/cacheService');
+const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
 
 const router = express.Router();
 
@@ -214,13 +215,36 @@ router.post('/:questId/verify', authenticateToken, async (req, res) => {
         }
       });
 
-      return { completion: updatedCompletion, reward: quest.reward };
+      // Fetch updated user points after transaction
+      const updatedUser = await tx.user.findUnique({
+        where: { id: userId },
+        select: { points: true }
+      });
+
+      return { 
+        completion: updatedCompletion, 
+        reward: quest.reward,
+        totalPoints: updatedUser?.points || 0
+      };
     });
+
+    // Write-through cache: Refresh user profile cache SYNCHRONOUSLY after transaction
+    // This ensures cache is updated before response is sent, preventing stale data window
+    // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
+    try {
+      await refreshUserAndLeaderboardCaches(userId);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after quest verification:', err);
+    }
 
     res.json({
       success: true,
       message: `Quest verified! You earned ${quest.reward} BUZZ`,
-      data: result
+      data: {
+        ...result,
+        totalPoints: result.totalPoints
+      }
     });
 
   } catch (error) {

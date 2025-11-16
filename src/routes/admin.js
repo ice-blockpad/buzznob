@@ -226,28 +226,28 @@ router.put('/users/:userId', authenticateToken, requireAdmin, async (req, res) =
       }
     });
 
-    // Write-through cache: Refresh user caches and invalidate admin user list cache
-    setImmediate(async () => {
-      try {
-        const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
-        
-        // If points changed, refresh user profile and leaderboard
-        if (points !== undefined) {
-          await refreshUserAndLeaderboardCaches(userId);
-        } else {
-          // Just refresh user profile cache
-          await cacheService.delete(`admin:user:${userId}`);
-          await cacheService.delete(`profile:${userId}`);
-        }
-        
-        // Invalidate admin user list cache (any page could be affected)
-        await cacheService.deletePattern('admin:users:*');
-        // Invalidate admin stats cache (user count may have changed)
-        await cacheService.delete('admin:stats');
-      } catch (err) {
-        console.error('Error refreshing caches after user update:', err);
+    // Write-through cache: Refresh user caches SYNCHRONOUSLY
+    // This ensures cache is updated before response is sent, preventing stale data window
+    try {
+      const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+      
+      // If points changed, refresh user profile and leaderboard
+      if (points !== undefined) {
+        await refreshUserAndLeaderboardCaches(userId);
+      } else {
+        // Just refresh user profile cache
+        await cacheService.delete(`admin:user:${userId}`);
+        await cacheService.delete(`profile:${userId}`);
       }
-    });
+      
+      // Invalidate admin user list cache (any page could be affected)
+      await cacheService.deletePattern('admin:users:*');
+      // Invalidate admin stats cache (user count may have changed)
+      await cacheService.delete('admin:stats');
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after user update:', err);
+    }
 
     res.json({
       success: true,
@@ -332,28 +332,27 @@ router.delete('/users/:userId', authenticateToken, requireAdmin, async (req, res
       });
     });
 
-    // Write-through cache: Invalidate all user-related caches
-    setImmediate(async () => {
-      try {
-        // Invalidate user profile caches
-        await cacheService.delete(`admin:user:${userId}`);
-        await cacheService.delete(`profile:${userId}`);
-        await cacheService.delete(`user:badges:${userId}`);
-        await cacheService.delete(`user:achievements:${userId}`);
-        await cacheService.delete(`achievements:${userId}`);
-        await cacheService.delete(`admin:achievements:${userId}`);
-        
-        // Invalidate admin user list cache
-        await cacheService.deletePattern('admin:users:*');
-        
-        // Invalidate leaderboard caches (user deleted, rankings changed)
-        await cacheService.deletePattern('leaderboard:*');
-        // Invalidate admin stats cache (user count changed)
-        await cacheService.delete('admin:stats');
-      } catch (err) {
-        console.error('Error invalidating caches after user delete:', err);
-      }
-    });
+    // Write-through cache: Invalidate all user-related caches SYNCHRONOUSLY
+    try {
+      // Invalidate user profile caches
+      await cacheService.delete(`admin:user:${userId}`);
+      await cacheService.delete(`profile:${userId}`);
+      await cacheService.delete(`user:badges:${userId}`);
+      await cacheService.delete(`user:achievements:${userId}`);
+      await cacheService.delete(`achievements:${userId}`);
+      await cacheService.delete(`admin:achievements:${userId}`);
+      
+      // Invalidate admin user list cache
+      await cacheService.deletePattern('admin:users:*');
+      
+      // Invalidate leaderboard caches (user deleted, rankings changed)
+      await cacheService.deletePattern('leaderboard:*');
+      // Invalidate admin stats cache (user count changed)
+      await cacheService.delete('admin:stats');
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating caches after user delete:', err);
+    }
 
     res.json({
       success: true,
@@ -528,22 +527,22 @@ router.patch('/users/:userId/achievements/:achievementId', authenticateToken, re
       });
     });
 
-    // Write-through cache: Refresh user profile and achievement caches
+    // Write-through cache: Refresh user profile and achievement caches SYNCHRONOUSLY
+    // This ensures cache is updated before response is sent, preventing stale data window
     // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
-    setImmediate(async () => {
-      try {
-        const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
-        await refreshUserAndLeaderboardCaches(userId);
-        
-        // Refresh user achievements cache
-        await cacheService.delete(`achievements:${userId}`);
-        await cacheService.delete(`user:badges:${userId}`);
-        await cacheService.delete(`user:achievements:${userId}`);
-        await cacheService.delete(`admin:achievements:${userId}`);
-      } catch (err) {
-        console.error('Error refreshing caches after achievement toggle:', err);
-      }
-    });
+    try {
+      const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+      await refreshUserAndLeaderboardCaches(userId);
+      
+      // Refresh user achievements cache
+      await cacheService.delete(`achievements:${userId}`);
+      await cacheService.delete(`user:badges:${userId}`);
+      await cacheService.delete(`user:achievements:${userId}`);
+      await cacheService.delete(`admin:achievements:${userId}`);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after achievement toggle:', err);
+    }
 
     res.json({
       success: true,
@@ -696,15 +695,14 @@ router.post('/rewards', authenticateToken, requireAdmin, async (req, res) => {
       }
     });
 
-    // Write-through cache: Invalidate reward list cache
-    setImmediate(async () => {
-      try {
-        await cacheService.deletePattern('rewards:*');
-        await cacheService.deletePattern('availableRewards:*');
-      } catch (err) {
-        console.error('Error invalidating reward caches after create:', err);
-      }
-    });
+    // Write-through cache: Invalidate reward list cache SYNCHRONOUSLY
+    try {
+      await cacheService.deletePattern('rewards:*');
+      await cacheService.deletePattern('availableRewards:*');
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating reward caches after create:', err);
+    }
 
     res.json({
       success: true,
@@ -733,16 +731,15 @@ router.put('/rewards/:rewardId', authenticateToken, requireAdmin, async (req, re
       data: updateData
     });
 
-    // Write-through cache: Invalidate reward caches
-    setImmediate(async () => {
-      try {
-        await cacheService.delete(`reward:${rewardId}`);
-        await cacheService.deletePattern('rewards:*');
-        await cacheService.deletePattern('availableRewards:*');
-      } catch (err) {
-        console.error('Error invalidating reward caches after update:', err);
-      }
-    });
+    // Write-through cache: Invalidate reward caches SYNCHRONOUSLY
+    try {
+      await cacheService.delete(`reward:${rewardId}`);
+      await cacheService.deletePattern('rewards:*');
+      await cacheService.deletePattern('availableRewards:*');
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating reward caches after update:', err);
+    }
 
     res.json({
       success: true,
@@ -769,16 +766,15 @@ router.delete('/rewards/:rewardId', authenticateToken, requireAdmin, async (req,
       where: { id: rewardId }
     });
 
-    // Write-through cache: Invalidate reward caches
-    setImmediate(async () => {
-      try {
-        await cacheService.delete(`reward:${rewardId}`);
-        await cacheService.deletePattern('rewards:*');
-        await cacheService.deletePattern('availableRewards:*');
-      } catch (err) {
-        console.error('Error invalidating reward caches after delete:', err);
-      }
-    });
+    // Write-through cache: Invalidate reward caches SYNCHRONOUSLY
+    try {
+      await cacheService.delete(`reward:${rewardId}`);
+      await cacheService.deletePattern('rewards:*');
+      await cacheService.deletePattern('availableRewards:*');
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating reward caches after delete:', err);
+    }
 
     res.json({
       success: true,
@@ -934,28 +930,27 @@ router.post('/articles', authenticateToken, debugMiddleware, upload.fields([{ na
       }
     });
 
-    // Write-through cache: Refresh article caches and invalidate portal caches if article is published
+    // Write-through cache: Refresh article caches and invalidate portal caches SYNCHRONOUSLY if article is published
     if (articleStatus === 'published') {
-      setImmediate(async () => {
-        try {
-          await cacheService.refreshArticleCaches(
-            fetchTrendingArticles,
-            fetchFeaturedArticles,
-            article.id
-          );
-          // Invalidate creator articles cache (if author is creator)
-          await cacheService.deletePattern(`creator:articles:${userId}:*`);
-          // Invalidate public articles cache (new published article)
-          await cacheService.deletePattern(`public:articles:${userId}:*`);
-          // Invalidate public profile cache (articles count changed)
-          await cacheService.delete(`public:profile:${userId}`);
-          // Invalidate admin caches
-          await cacheService.deletePattern('admin:articles:*');
-          await cacheService.delete('admin:stats');
-        } catch (err) {
-          console.error('Error refreshing caches after create:', err);
-        }
-      });
+      try {
+        await cacheService.refreshArticleCaches(
+          fetchTrendingArticles,
+          fetchFeaturedArticles,
+          article.id
+        );
+        // Invalidate creator articles cache (if author is creator)
+        await cacheService.deletePattern(`creator:articles:${userId}:*`);
+        // Invalidate public articles cache (new published article)
+        await cacheService.deletePattern(`public:articles:${userId}:*`);
+        // Invalidate public profile cache (articles count changed)
+        await cacheService.delete(`public:profile:${userId}`);
+        // Invalidate admin caches
+        await cacheService.deletePattern('admin:articles:*');
+        await cacheService.delete('admin:stats');
+      } catch (err) {
+        // Non-blocking: Log error but don't fail the request
+        console.error('Error refreshing caches after create:', err);
+      }
     }
 
     res.json({
@@ -1154,31 +1149,29 @@ router.put('/articles/:id', authenticateToken, async (req, res) => {
       data: updateData
     });
 
-    // Write-through cache: Refresh article caches if article is published
+    // Write-through cache: Refresh article caches SYNCHRONOUSLY if article is published
     if (article.status === 'published') {
-      setImmediate(async () => {
-        try {
-          await cacheService.refreshArticleCaches(
-            fetchTrendingArticles,
-            fetchFeaturedArticles,
-            article.id
-          );
-          // Invalidate admin article caches
-          await cacheService.deletePattern('admin:articles:*');
-        } catch (err) {
-          console.error('Error refreshing article caches after update:', err);
-        }
-      });
+      try {
+        await cacheService.refreshArticleCaches(
+          fetchTrendingArticles,
+          fetchFeaturedArticles,
+          article.id
+        );
+        // Invalidate admin article caches
+        await cacheService.deletePattern('admin:articles:*');
+      } catch (err) {
+        // Non-blocking: Log error but don't fail the request
+        console.error('Error refreshing article caches after update:', err);
+      }
     } else {
-      // If article is pending or rejected, invalidate admin caches
-      setImmediate(async () => {
-        try {
-          await cacheService.deletePattern('admin:articles:*');
-          await cacheService.deletePattern('admin:articles:pending:*');
-        } catch (err) {
-          console.error('Error invalidating admin article caches after update:', err);
-        }
-      });
+      // If article is pending or rejected, invalidate admin caches SYNCHRONOUSLY
+      try {
+        await cacheService.deletePattern('admin:articles:*');
+        await cacheService.deletePattern('admin:articles:pending:*');
+      } catch (err) {
+        // Non-blocking: Log error but don't fail the request
+        console.error('Error invalidating admin article caches after update:', err);
+      }
     }
 
     res.json({
@@ -1225,21 +1218,20 @@ router.patch('/articles/:id/trending', authenticateToken, requireAdmin, async (r
       data: { isFeatured }
     });
 
-    // Write-through cache: Refresh article caches after trending toggle
+    // Write-through cache: Refresh article caches SYNCHRONOUSLY after trending toggle
     if (article.status === 'published') {
-      setImmediate(async () => {
-        try {
-          await cacheService.refreshArticleCaches(
-            fetchTrendingArticles,
-            fetchFeaturedArticles,
-            article.id
-          );
-          // Invalidate admin article caches
-          await cacheService.deletePattern('admin:articles:*');
-        } catch (err) {
-          console.error('Error refreshing article caches after trending toggle:', err);
-        }
-      });
+      try {
+        await cacheService.refreshArticleCaches(
+          fetchTrendingArticles,
+          fetchFeaturedArticles,
+          article.id
+        );
+        // Invalidate admin article caches
+        await cacheService.deletePattern('admin:articles:*');
+      } catch (err) {
+        // Non-blocking: Log error but don't fail the request
+        console.error('Error refreshing article caches after trending toggle:', err);
+      }
     }
 
     res.json({
@@ -1288,21 +1280,20 @@ router.patch('/articles/:id/read-count', authenticateToken, requireAdmin, async 
       select: { id: true, title: true, manualReadCount: true, status: true }
     });
 
-    // Write-through cache: Refresh read count and article caches
-    setImmediate(async () => {
-      try {
-        await cacheService.refreshReadCount(id, async () => readCount, 3600); // 1 hour TTL
-        if (article.status === 'published') {
-          await cacheService.refreshArticleCaches(
-            fetchTrendingArticles,
-            fetchFeaturedArticles,
-            id
-          );
-        }
-      } catch (err) {
-        console.error('Error refreshing caches after read count update:', err);
+    // Write-through cache: Refresh read count and article caches SYNCHRONOUSLY
+    try {
+      await cacheService.refreshReadCount(id, async () => readCount, 3600); // 1 hour TTL
+      if (article.status === 'published') {
+        await cacheService.refreshArticleCaches(
+          fetchTrendingArticles,
+          fetchFeaturedArticles,
+          id
+        );
       }
-    });
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after read count update:', err);
+    }
 
     res.json({
       success: true,
@@ -1335,21 +1326,20 @@ router.patch('/articles/:id/read-count/reset', authenticateToken, requireAdmin, 
       select: { id: true, title: true, manualReadCount: true, status: true }
     });
 
-    // Write-through cache: Refresh read count and article caches
-    setImmediate(async () => {
-      try {
-        await cacheService.refreshReadCount(id, async () => actualCount, 3600); // 1 hour TTL
-        if (article.status === 'published') {
-          await cacheService.refreshArticleCaches(
-            fetchTrendingArticles,
-            fetchFeaturedArticles,
-            id
-          );
-        }
-      } catch (err) {
-        console.error('Error refreshing caches after read count reset:', err);
+    // Write-through cache: Refresh read count and article caches SYNCHRONOUSLY
+    try {
+      await cacheService.refreshReadCount(id, async () => actualCount, 3600); // 1 hour TTL
+      if (article.status === 'published') {
+        await cacheService.refreshArticleCaches(
+          fetchTrendingArticles,
+          fetchFeaturedArticles,
+          id
+        );
       }
-    });
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after read count reset:', err);
+    }
 
     res.json({
       success: true,
@@ -1417,21 +1407,20 @@ router.patch('/articles/:id/featured', authenticateToken, requireAdmin, async (r
       data: { isFeaturedArticle }
     });
 
-    // Write-through cache: Refresh article caches after featured toggle
+    // Write-through cache: Refresh article caches SYNCHRONOUSLY after featured toggle
     if (article.status === 'published') {
-      setImmediate(async () => {
-        try {
-          await cacheService.refreshArticleCaches(
-            fetchTrendingArticles,
-            fetchFeaturedArticles,
-            article.id
-          );
-          // Invalidate admin article caches
-          await cacheService.deletePattern('admin:articles:*');
-        } catch (err) {
-          console.error('Error refreshing article caches after featured toggle:', err);
-        }
-      });
+      try {
+        await cacheService.refreshArticleCaches(
+          fetchTrendingArticles,
+          fetchFeaturedArticles,
+          article.id
+        );
+        // Invalidate admin article caches
+        await cacheService.deletePattern('admin:articles:*');
+      } catch (err) {
+        // Non-blocking: Log error but don't fail the request
+        console.error('Error refreshing article caches after featured toggle:', err);
+      }
     }
 
     res.json({
@@ -1497,23 +1486,22 @@ router.delete('/articles/:id', authenticateToken, requireAdmin, async (req, res)
 
     console.log(`Article ${id} deleted successfully by admin ${userId}`);
 
-    // Write-through cache: Refresh article caches after deletion
-    setImmediate(async () => {
-      try {
-        await cacheService.refreshArticleCaches(
-          fetchTrendingArticles,
-          fetchFeaturedArticles,
-          id
-        );
-        // Invalidate admin article caches
-        await cacheService.deletePattern('admin:articles:*');
-        await cacheService.deletePattern('admin:articles:pending:*');
-        await cacheService.deletePattern('admin:articles:review-history:*');
-        await cacheService.delete('admin:stats');
-      } catch (err) {
-        console.error('Error refreshing article caches after delete:', err);
-      }
-    });
+    // Write-through cache: Refresh article caches SYNCHRONOUSLY after deletion
+    try {
+      await cacheService.refreshArticleCaches(
+        fetchTrendingArticles,
+        fetchFeaturedArticles,
+        id
+      );
+      // Invalidate admin article caches
+      await cacheService.deletePattern('admin:articles:*');
+      await cacheService.deletePattern('admin:articles:pending:*');
+      await cacheService.deletePattern('admin:articles:review-history:*');
+      await cacheService.delete('admin:stats');
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing article caches after delete:', err);
+    }
 
     res.json({
       success: true,
@@ -1590,29 +1578,28 @@ router.patch('/articles/:id/approve', authenticateToken, requireAdmin, async (re
 
     console.log(`Article ${id} approved and published by admin ${userId}`);
 
-    // Write-through cache: Refresh article caches and invalidate portal caches after publishing
-    setImmediate(async () => {
-      try {
-        await cacheService.refreshArticleCaches(
-          fetchTrendingArticles,
-          fetchFeaturedArticles,
-          updatedArticle.id
-        );
-        // Invalidate creator articles cache (article now published)
-        await cacheService.deletePattern(`creator:articles:${article.authorId}:*`);
-        // Invalidate public articles cache (new published article)
-        await cacheService.deletePattern(`public:articles:${article.authorId}:*`);
-        // Invalidate public profile cache (articles count changed)
-        await cacheService.delete(`public:profile:${article.authorId}`);
-        // Invalidate admin caches
-        await cacheService.deletePattern('admin:articles:*');
-        await cacheService.deletePattern('admin:articles:pending:*');
-        await cacheService.deletePattern('admin:articles:review-history:*');
-        await cacheService.delete('admin:stats');
-      } catch (err) {
-        console.error('Error refreshing caches after approve:', err);
-      }
-    });
+    // Write-through cache: Refresh article caches and invalidate portal caches SYNCHRONOUSLY after publishing
+    try {
+      await cacheService.refreshArticleCaches(
+        fetchTrendingArticles,
+        fetchFeaturedArticles,
+        updatedArticle.id
+      );
+      // Invalidate creator articles cache (article now published)
+      await cacheService.deletePattern(`creator:articles:${article.authorId}:*`);
+      // Invalidate public articles cache (new published article)
+      await cacheService.deletePattern(`public:articles:${article.authorId}:*`);
+      // Invalidate public profile cache (articles count changed)
+      await cacheService.delete(`public:profile:${article.authorId}`);
+      // Invalidate admin caches
+      await cacheService.deletePattern('admin:articles:*');
+      await cacheService.deletePattern('admin:articles:pending:*');
+      await cacheService.deletePattern('admin:articles:review-history:*');
+      await cacheService.delete('admin:stats');
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after approve:', err);
+    }
 
     res.json({
       success: true,
@@ -1690,25 +1677,24 @@ router.patch('/articles/:id/reject', authenticateToken, requireAdmin, async (req
 
     console.log(`Article ${id} rejected by admin ${userId}. Reason: ${reason}`);
 
-    // Write-through cache: Invalidate article caches
-    setImmediate(async () => {
-      try {
-        // Invalidate pending articles cache (article no longer pending)
-        await cacheService.deletePattern('admin:articles:pending:*');
-        // Invalidate review history cache (new review entry)
-        await cacheService.deletePattern('admin:articles:review-history:*');
-        // Invalidate admin articles cache (if article was published before)
-        await cacheService.deletePattern('admin:articles:*');
-        // Invalidate creator articles cache
-        await cacheService.deletePattern(`creator:articles:${article.authorId}:*`);
-        // Invalidate public articles cache
-        await cacheService.deletePattern(`public:articles:${article.authorId}:*`);
-        // Invalidate admin stats cache (article count changed)
-        await cacheService.delete('admin:stats');
-      } catch (err) {
-        console.error('Error invalidating caches after reject:', err);
-      }
-    });
+    // Write-through cache: Invalidate article caches SYNCHRONOUSLY
+    try {
+      // Invalidate pending articles cache (article no longer pending)
+      await cacheService.deletePattern('admin:articles:pending:*');
+      // Invalidate review history cache (new review entry)
+      await cacheService.deletePattern('admin:articles:review-history:*');
+      // Invalidate admin articles cache (if article was published before)
+      await cacheService.deletePattern('admin:articles:*');
+      // Invalidate creator articles cache
+      await cacheService.deletePattern(`creator:articles:${article.authorId}:*`);
+      // Invalidate public articles cache
+      await cacheService.deletePattern(`public:articles:${article.authorId}:*`);
+      // Invalidate admin stats cache (article count changed)
+      await cacheService.delete('admin:stats');
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error invalidating caches after reject:', err);
+    }
 
     res.json({
       success: true,

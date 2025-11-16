@@ -542,7 +542,16 @@ router.post('/claim', authenticateToken, async (req, res) => {
         }
       });
 
-      return nextSession;
+      // Fetch updated user points after transaction
+      const updatedUser = await tx.user.findUnique({
+        where: { id: userId },
+        select: { points: true }
+      });
+
+      return { 
+        session: nextSession,
+        totalPoints: updatedUser?.points || 0
+      };
     });
 
     // Update mining rates for all users who referred this user
@@ -556,24 +565,27 @@ router.post('/claim', authenticateToken, async (req, res) => {
       });
     });
 
-    // Write-through cache: Refresh user profile cache after points change
+    // Write-through cache: Refresh user profile cache SYNCHRONOUSLY after transaction
+    // This ensures cache is updated before response is sent, preventing stale data window
     // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
-    setImmediate(() => {
-      refreshUserAndLeaderboardCaches(userId).catch(err => {
-        console.error('Error refreshing caches after mining claim:', err);
-      });
-    });
+    try {
+      await refreshUserAndLeaderboardCaches(userId);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after mining claim:', err);
+    }
 
     res.json({
       success: true,
       data: {
         amount: finalMinedAmount,
+        totalPoints: result.totalPoints,
         message: `Successfully claimed ${finalMinedAmount} $BUZZ tokens!`,
         nextSession: {
-          sessionId: result.id,
-          startedAt: result.startedAt,
-          endsAt: result.endsAt,
-          nextClaimTime: result.endsAt
+          sessionId: result.session.id,
+          startedAt: result.session.startedAt,
+          endsAt: result.session.endsAt,
+          nextClaimTime: result.session.endsAt
         }
       }
     });

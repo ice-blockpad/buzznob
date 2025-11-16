@@ -140,14 +140,23 @@ class CacheService {
    * @param {Function} fetchProfileFn - Function to fetch fresh profile from DB
    * @returns {Promise<void>}
    */
-  async refreshUserProfile(userId, fetchProfileFn) {
+  /**
+   * Refresh user profile cache with fresh data
+   * Optimized: Directly updates cache without delete-then-write pattern
+   * This avoids the empty cache window and ensures atomic updates
+   * @param {string} userId - User ID
+   * @param {Function|Object} fetchProfileFnOrData - Function to fetch fresh profile, or pre-fetched data
+   * @returns {Promise<void>}
+   */
+  async refreshUserProfile(userId, fetchProfileFnOrData) {
     try {
-      // Write-through: Update cache with fresh profile data
-      await this.writeThroughUserProfile(userId, fetchProfileFn, 120);
+      // Write-through: Update cache directly with fresh data (atomic operation)
+      // No need to delete first - Redis SET overwrites existing key
+      await this.writeThroughUserProfile(userId, fetchProfileFnOrData, 120);
       console.log(`✅ Refreshed profile cache for user ${userId} (write-through)`);
     } catch (error) {
       console.error(`Error refreshing user profile cache for ${userId}:`, error);
-      // Fallback: Delete cache if refresh fails
+      // Fallback: Delete cache if refresh fails to force fresh fetch on next request
       await this.delete(`profile:${userId}`);
     }
   }
@@ -289,18 +298,20 @@ class CacheService {
   /**
    * Write-through for user profile: Update cache when profile changes
    * @param {string} userId - User ID
-   * @param {Function} fetchFn - Function to fetch fresh profile from DB
+   * @param {Function|Object} fetchFnOrData - Function to fetch fresh profile from DB, or pre-fetched data object
    * @param {number} ttlSeconds - Cache TTL in seconds
    * @returns {Promise<any>} - Fresh profile (also cached)
    */
-  async writeThroughUserProfile(userId, fetchFn, ttlSeconds = 120) {
+  async writeThroughUserProfile(userId, fetchFnOrData, ttlSeconds = 120) {
     try {
       const cacheKey = `profile:${userId}`;
       
-      // Fetch fresh data from database
-      const data = await fetchFn();
+      // If fetchFnOrData is a function, call it; otherwise use it directly
+      const data = typeof fetchFnOrData === 'function' 
+        ? await fetchFnOrData() 
+        : fetchFnOrData;
       
-      // Write-through: Update cache with fresh data
+      // Write-through: Update cache with fresh data (atomic: SET overwrites existing key)
       if (data !== null && data !== undefined) {
         await this.set(cacheKey, data, ttlSeconds);
       }

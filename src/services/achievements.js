@@ -218,26 +218,26 @@ async function awardBadge(userId, badge) {
       console.log(`🏆 Awarded badge "${badge.name}" to user ${userId} (+${badge.pointsRequired} points)`);
     });
 
-    // Write-through cache: Refresh user profile and achievement caches
+    // Write-through cache: Refresh user profile and achievement caches SYNCHRONOUSLY
     // (achievementsCount changed, and points may have changed)
+    // This ensures cache is updated before response is sent, preventing stale data window
     // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
     const { refreshUserAndLeaderboardCaches } = require('./cacheRefreshHelpers');
     const cacheService = require('./cacheService');
-    setImmediate(async () => {
-      try {
-        // Refresh user profile cache (points may have changed)
-        // Leaderboard will update automatically every 10 minutes
-        await refreshUserAndLeaderboardCaches(userId);
-        
-        // Refresh user achievements cache
-        await cacheService.delete(`achievements:${userId}`);
-        await cacheService.delete(`user:badges:${userId}`);
-        await cacheService.delete(`user:achievements:${userId}`);
-        await cacheService.delete(`admin:achievements:${userId}`);
-      } catch (err) {
-        console.error('Error refreshing caches after achievement award:', err);
-      }
-    });
+    try {
+      // Refresh user profile cache (points may have changed)
+      // Leaderboard will update automatically every 10 minutes
+      await refreshUserAndLeaderboardCaches(userId);
+      
+      // Refresh user achievements cache
+      await cacheService.delete(`achievements:${userId}`);
+      await cacheService.delete(`user:badges:${userId}`);
+      await cacheService.delete(`user:achievements:${userId}`);
+      await cacheService.delete(`admin:achievements:${userId}`);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after achievement award:', err);
+    }
 
     // Send push notification when achievement is unlocked (after transaction completes)
     setImmediate(() => {

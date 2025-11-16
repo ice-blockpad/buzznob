@@ -82,6 +82,18 @@ router.post('/create', authenticateToken, async (req, res) => {
       data: { walletAddress: publicKey }
     });
 
+    // Write-through cache: Refresh user profile cache SYNCHRONOUSLY (walletAddress changed)
+    try {
+      const cacheService = require('../services/cacheService');
+      const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+      await refreshUserAndLeaderboardCaches(userId);
+      // Invalidate public profile cache (wallet address changed)
+      await cacheService.delete(`public:profile:${userId}`);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after wallet creation:', err);
+    }
+
     console.log('✅ User wallet address updated');
 
     console.log('🎉 Wallet creation successful!');

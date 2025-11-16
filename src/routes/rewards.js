@@ -134,13 +134,15 @@ router.post('/daily/claim', authenticateToken, async (req, res) => {
       });
     });
 
-    // Write-through cache: Refresh user profile cache after points change
+    // Write-through cache: Refresh user profile cache SYNCHRONOUSLY after transaction
+    // This ensures cache is updated before response is sent, preventing stale data window
     // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
-    setImmediate(() => {
-      refreshUserAndLeaderboardCaches(userId).catch(err => {
-        console.error('Error refreshing caches after daily claim:', err);
-      });
-    });
+    try {
+      await refreshUserAndLeaderboardCaches(userId);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after daily claim:', err);
+    }
 
     res.json({
       success: true,
@@ -432,13 +434,15 @@ router.post('/redeem', authenticateToken, async (req, res) => {
       return newReward;
     });
 
-    // Write-through cache: Refresh user profile cache after points change
+    // Write-through cache: Refresh user profile cache SYNCHRONOUSLY after transaction
+    // This ensures cache is updated before response is sent, preventing stale data window
     // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
-    setImmediate(() => {
-      refreshUserAndLeaderboardCaches(userId).catch(err => {
-        console.error('Error refreshing caches after reward redeem:', err);
-      });
-    });
+    try {
+      await refreshUserAndLeaderboardCaches(userId);
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing caches after reward redeem:', err);
+    }
 
     res.json({
       success: true,
