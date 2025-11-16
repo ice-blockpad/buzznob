@@ -1868,6 +1868,255 @@ router.get('/articles/:id/image', async (req, res) => {
   }
 });
 
+// ==================== QUEST MANAGEMENT ====================
+
+// Get all quests (admin)
+router.get('/quests', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const quests = await prisma.quest.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: { completions: true }
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      data: { quests }
+    });
+  } catch (error) {
+    console.error('Get quests error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'QUESTS_FETCH_ERROR',
+      message: 'Failed to fetch quests'
+    });
+  }
+});
+
+// Create quest (admin only)
+router.post('/quests', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const {
+      title,
+      description,
+      icon,
+      color,
+      url,
+      reward,
+      category
+    } = req.body;
+
+    // Validate required fields
+    if (!title || !icon) {
+      return res.status(400).json({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: 'Title and icon are required'
+      });
+    }
+
+    // Validate category
+    const validCategories = ['social', 'promotional'];
+    const questCategory = category && validCategories.includes(category.toLowerCase()) 
+      ? category.toLowerCase() 
+      : 'social';
+
+    // Validate reward
+    const questReward = parseInt(reward) || 50;
+    if (questReward < 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'VALIDATION_ERROR',
+        message: 'Reward must be a positive number'
+      });
+    }
+
+    // Use transaction to ensure atomicity
+    const quest = await prisma.$transaction(async (tx) => {
+      return await tx.quest.create({
+        data: {
+          title: title.trim(),
+          description: description?.trim() || null,
+          icon,
+          color: color || '#1DA1F2',
+          url: url?.trim() || null,
+          reward: questReward,
+          category: questCategory,
+          isActive: true
+        }
+      });
+    });
+
+    console.log(`Quest ${quest.id} created successfully by admin ${userId}`);
+
+    res.json({
+      success: true,
+      message: 'Quest created successfully',
+      data: { quest }
+    });
+
+  } catch (error) {
+    console.error('Create quest error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'QUEST_CREATE_ERROR',
+      message: 'Failed to create quest'
+    });
+  }
+});
+
+// Update quest (admin only)
+router.put('/quests/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const {
+      title,
+      description,
+      icon,
+      color,
+      url,
+      reward,
+      category,
+      isActive
+    } = req.body;
+
+    // Check if quest exists
+    const existingQuest = await prisma.quest.findUnique({
+      where: { id }
+    });
+
+    if (!existingQuest) {
+      return res.status(404).json({
+        success: false,
+        error: 'QUEST_NOT_FOUND',
+        message: 'Quest not found'
+      });
+    }
+
+    // Build update data
+    const updateData = {};
+    if (title !== undefined) updateData.title = title.trim();
+    if (description !== undefined) updateData.description = description?.trim() || null;
+    if (icon !== undefined) updateData.icon = icon;
+    if (color !== undefined) updateData.color = color;
+    if (url !== undefined) updateData.url = url?.trim() || null;
+    if (reward !== undefined) {
+      const questReward = parseInt(reward);
+      if (questReward < 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'VALIDATION_ERROR',
+          message: 'Reward must be a positive number'
+        });
+      }
+      updateData.reward = questReward;
+    }
+    if (category !== undefined) {
+      const validCategories = ['social', 'promotional'];
+      updateData.category = validCategories.includes(category.toLowerCase()) 
+        ? category.toLowerCase() 
+        : existingQuest.category;
+    }
+    if (isActive !== undefined) updateData.isActive = isActive === true || isActive === 'true';
+
+    // Use transaction to ensure atomicity
+    const quest = await prisma.$transaction(async (tx) => {
+      return await tx.quest.update({
+        where: { id },
+        data: updateData
+      });
+    });
+
+    console.log(`Quest ${id} updated successfully by admin ${userId}`);
+
+    res.json({
+      success: true,
+      message: 'Quest updated successfully',
+      data: { quest }
+    });
+
+  } catch (error) {
+    console.error('Update quest error:', error);
+    
+    if (error.code === 'P2025') {
+      return res.status(404).json({
+        success: false,
+        error: 'QUEST_NOT_FOUND',
+        message: 'Quest not found'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'QUEST_UPDATE_ERROR',
+      message: 'Failed to update quest'
+    });
+  }
+});
+
+// Delete quest (admin only)
+router.delete('/quests/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+
+    // Check if quest exists
+    const existingQuest = await prisma.quest.findUnique({
+      where: { id }
+    });
+
+    if (!existingQuest) {
+      return res.status(404).json({
+        success: false,
+        error: 'QUEST_NOT_FOUND',
+        message: 'Quest not found'
+      });
+    }
+
+    // Use transaction to ensure atomicity (delete quest and all completions)
+    await prisma.$transaction(async (tx) => {
+      // Delete all quest completions first (cascade should handle this, but being explicit)
+      await tx.questCompletion.deleteMany({
+        where: { questId: id }
+      });
+
+      // Delete the quest
+      await tx.quest.delete({
+        where: { id }
+      });
+    });
+
+    console.log(`Quest ${id} deleted successfully by admin ${userId}`);
+
+    res.json({
+      success: true,
+      message: 'Quest deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Delete quest error:', error);
+    
+    if (error.code === 'P2025') {
+      return res.status(404).json({
+        success: false,
+        error: 'QUEST_NOT_FOUND',
+        message: 'Quest not found'
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'QUEST_DELETE_ERROR',
+      message: 'Failed to delete quest'
+    });
+  }
+});
+
 // Use error handler middleware
 router.use(errorHandler);
 

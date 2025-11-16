@@ -19,6 +19,7 @@ const creatorRoutes = require('./routes/creator');
 const dataRoutes = require('./routes/data');
 const achievementRoutes = require('./routes/achievements');
 const uploadRoutes = require('./routes/uploads');
+const questRoutes = require('./routes/quests');
 const { errorHandler } = require('./middleware/errorHandler');
 const { connectDB } = require('./config/database');
 const { autoSyncDatabase } = require('./scripts/autoSync');
@@ -184,6 +185,7 @@ app.use('/api/creator', creatorRoutes);
 app.use('/api/data', dataRoutes);
 app.use('/api/achievements', achievementRoutes);
 app.use('/api/uploads', uploadRoutes);
+app.use('/api/quests', questRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

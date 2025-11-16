@@ -55,6 +55,7 @@ model User {
   activities       UserActivity[]
   userBadges       UserBadge[]
   sessions         UserSession[]
+  questCompletions QuestCompletion[]
   referredByUser   User?            @relation("UserReferrals", fields: [referredBy], references: [id])
   referrals        User[]           @relation("UserReferrals")
   walletData       WalletData[]
@@ -409,4 +410,47 @@ model DailyReward {
   @@index([userId, claimedAt]) // Composite index for user daily rewards sorted by date
   @@index([claimedAt]) // For sorting by claim date
   @@map("daily_rewards")
+}
+
+model Quest {
+  id          String   @id @default(cuid()) @db.VarChar
+  title       String
+  description String?
+  icon        String
+  color       String   @default("#1DA1F2")
+  url         String?
+  reward      Int      @default(50)
+  category    String   @default("social") // social, promotional
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  completions QuestCompletion[]
+
+  // Indexes for performance optimization
+  @@index([isActive]) // For filtering active quests
+  @@index([category]) // For filtering by category
+  @@index([isActive, category]) // Composite index for active quests by category
+  @@index([createdAt]) // For sorting by creation date
+  @@map("quests")
+}
+
+model QuestCompletion {
+  id        String   @id @default(cuid()) @db.VarChar
+  userId    String   @map("user_id") @db.VarChar
+  questId   String   @map("quest_id") @db.VarChar
+  status    String   @default("completed") // completed, verified
+  completedAt DateTime? @map("completed_at")
+  verifiedAt  DateTime? @map("verified_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quest     Quest    @relation(fields: [questId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questId])
+  // Indexes for performance optimization
+  @@index([userId]) // For user quest completion queries
+  @@index([questId]) // For quest completion count queries
+  @@index([userId, status]) // Composite index for user quests by status
+  @@index([completedAt]) // For sorting by completion date
+  @@map("quest_completions")
 }
