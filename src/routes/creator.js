@@ -36,13 +36,11 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
       sourceName,
       sourceUrl,
       pointsValue,
-      readTimeEstimate,
       isFeatured
     } = req.body;
 
     // Parse numeric values from FormData
     const parsedPointsValue = parseInt(pointsValue) || 10;
-    const parsedReadTimeEstimate = parseInt(readTimeEstimate) || 5;
     const parsedIsFeatured = isFeatured === 'true' || isFeatured === true;
 
     // Handle image - prefer Cloudflare R2 URL over base64
@@ -111,7 +109,6 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
         sourceName: sourceName || 'BuzzNob',
         sourceUrl: sourceUrl || null,
         pointsValue: parsedPointsValue,
-        readTimeEstimate: parsedReadTimeEstimate,
         isFeatured: parsedIsFeatured,
         imageUrl: finalImageUrl || null,
         imageData: finalImageData || null,
@@ -250,15 +247,14 @@ router.put('/articles/:id', authenticateToken, requireCreator, async (req, res) 
       'category',
       'sourceName',
       'sourceUrl',
-      'pointsValue',
-      'readTimeEstimate'
+      'pointsValue'
     ];
 
     // Only update provided fields
     allowedFields.forEach(field => {
       if (req.body[field] !== undefined) {
-        if (field === 'pointsValue' || field === 'readTimeEstimate') {
-          updateData[field] = parseInt(req.body[field]) || (field === 'pointsValue' ? 10 : 5);
+        if (field === 'pointsValue') {
+          updateData[field] = parseInt(req.body[field]) || 10;
         } else if (field === 'category') {
           updateData[field] = req.body[field].toUpperCase();
         } else {

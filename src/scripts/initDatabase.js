@@ -62,7 +62,6 @@ async function initDatabase() {
         source_url VARCHAR(500),
         source_name VARCHAR(100),
         points_value INTEGER DEFAULT 10,
-        read_time_estimate INTEGER,
         is_featured BOOLEAN DEFAULT FALSE,
         image_url VARCHAR(500),
         created_at TIMESTAMP DEFAULT NOW()
@@ -213,17 +212,17 @@ async function seedDatabase() {
 
     // Insert sample articles
     await prisma.$executeRaw`
-      INSERT INTO articles (title, content, category, source_name, points_value, read_time_estimate, is_featured, image_url) VALUES
-      ('Bitcoin Reaches New All-Time High', 'Bitcoin has reached a new all-time high of $100,000, marking a significant milestone in cryptocurrency adoption. This surge comes after months of institutional adoption and regulatory clarity...', 'crypto', 'CoinDesk', 15, 3, true, 'https://images.coindesk.com/bitcoin-chart.jpg'),
-      ('Lakers Win Championship Game', 'The Los Angeles Lakers secured their 18th NBA championship with a thrilling victory over the Boston Celtics. LeBron James led the team with 35 points and 12 assists...', 'sports', 'ESPN', 12, 4, true, 'https://images.espn.com/lakers-celebration.jpg'),
-      ('New Marvel Movie Breaks Box Office Records', 'The latest Marvel Cinematic Universe film has shattered box office records, grossing over $1 billion worldwide. The film features an all-star cast...', 'entertainment', 'Variety', 10, 3, false, 'https://images.variety.com/marvel-poster.jpg'),
-      ('Ethereum 2.0 Upgrade Complete', 'The long-awaited Ethereum 2.0 upgrade has been successfully implemented, bringing improved scalability and energy efficiency to the network. This marks a major milestone...', 'crypto', 'CoinTelegraph', 20, 5, true, 'https://images.cointelegraph.com/ethereum-upgrade.jpg'),
-      ('World Cup Final Set', 'The FIFA World Cup final is set between Argentina and France, promising an exciting match. Both teams have shown exceptional form throughout the tournament...', 'sports', 'FIFA', 15, 2, true, 'https://images.fifa.com/world-cup-trophy.jpg'),
-      ('Solana Network Hits 1 Million TPS', 'Solana blockchain has achieved a new milestone by processing over 1 million transactions per second during a stress test. This demonstrates the network''s scalability...', 'crypto', 'Solana News', 18, 4, false, 'https://images.solana.com/network-stats.jpg'),
-      ('Taylor Swift Announces New Album', 'Pop superstar Taylor Swift has announced her highly anticipated new album, set to release next month. The album features collaborations with several top artists...', 'entertainment', 'Billboard', 8, 2, false, 'https://images.billboard.com/taylor-swift.jpg'),
-      ('NBA Playoffs Begin', 'The NBA playoffs have officially begun with 16 teams competing for the championship. The first round promises exciting matchups and intense competition...', 'sports', 'NBA.com', 14, 3, false, 'https://images.nba.com/playoffs-bracket.jpg'),
-      ('DeFi Protocol Launches on Solana', 'A new decentralized finance protocol has launched on the Solana blockchain, offering yield farming opportunities and liquidity mining rewards...', 'crypto', 'DeFi Pulse', 16, 4, false, 'https://images.defipulse.com/protocol-launch.jpg'),
-      ('Netflix Original Series Renewed', 'Popular Netflix original series has been renewed for another season after receiving critical acclaim and high viewership numbers...', 'entertainment', 'Netflix', 6, 2, false, 'https://images.netflix.com/series-poster.jpg')
+      INSERT INTO articles (title, content, category, source_name, points_value, is_featured, image_url) VALUES
+      ('Bitcoin Reaches New All-Time High', 'Bitcoin has reached a new all-time high of $100,000, marking a significant milestone in cryptocurrency adoption. This surge comes after months of institutional adoption and regulatory clarity...', 'crypto', 'CoinDesk', 15, true, 'https://images.coindesk.com/bitcoin-chart.jpg'),
+      ('Lakers Win Championship Game', 'The Los Angeles Lakers secured their 18th NBA championship with a thrilling victory over the Boston Celtics. LeBron James led the team with 35 points and 12 assists...', 'sports', 'ESPN', 12, true, 'https://images.espn.com/lakers-celebration.jpg'),
+      ('New Marvel Movie Breaks Box Office Records', 'The latest Marvel Cinematic Universe film has shattered box office records, grossing over $1 billion worldwide. The film features an all-star cast...', 'entertainment', 'Variety', 10, false, 'https://images.variety.com/marvel-poster.jpg'),
+      ('Ethereum 2.0 Upgrade Complete', 'The long-awaited Ethereum 2.0 upgrade has been successfully implemented, bringing improved scalability and energy efficiency to the network. This marks a major milestone...', 'crypto', 'CoinTelegraph', 20, true, 'https://images.cointelegraph.com/ethereum-upgrade.jpg'),
+      ('World Cup Final Set', 'The FIFA World Cup final is set between Argentina and France, promising an exciting match. Both teams have shown exceptional form throughout the tournament...', 'sports', 'FIFA', 15, true, 'https://images.fifa.com/world-cup-trophy.jpg'),
+      ('Solana Network Hits 1 Million TPS', 'Solana blockchain has achieved a new milestone by processing over 1 million transactions per second during a stress test. This demonstrates the network\'s scalability...', 'crypto', 'Solana News', 18, false, 'https://images.solana.com/network-stats.jpg'),
+      ('Taylor Swift Announces New Album', 'Pop superstar Taylor Swift has announced her highly anticipated new album, set to release next month. The album features collaborations with several top artists...', 'entertainment', 'Billboard', 8, false, 'https://images.billboard.com/taylor-swift.jpg'),
+      ('NBA Playoffs Begin', 'The NBA playoffs have officially begun with 16 teams competing for the championship. The first round promises exciting matchups and intense competition...', 'sports', 'NBA.com', 14, false, 'https://images.nba.com/playoffs-bracket.jpg'),
+      ('DeFi Protocol Launches on Solana', 'A new decentralized finance protocol has launched on the Solana blockchain, offering yield farming opportunities and liquidity mining rewards...', 'crypto', 'DeFi Pulse', 16, false, 'https://images.defipulse.com/protocol-launch.jpg'),
+      ('Netflix Original Series Renewed', 'Popular Netflix original series has been renewed for another season after receiving critical acclaim and high viewership numbers...', 'entertainment', 'Netflix', 6, false, 'https://images.netflix.com/series-poster.jpg')
       ON CONFLICT (title) DO NOTHING;
     `;
 
@@ -243,7 +242,7 @@ async function seedDatabase() {
         u.id,
         a.id,
         a.points_value,
-        a.read_time_estimate * 60,
+        180,
         NOW() - (random() * interval '7 days')
       FROM users u
       CROSS JOIN articles a

@@ -361,7 +361,7 @@ router.get('/activity', authenticateToken, async (req, res) => {
             title: true,
             category: true,
             pointsValue: true,
-            readTimeEstimate: true
+            
           }
         }
       },
@@ -1002,7 +1002,6 @@ router.get('/:userId/articles', async (req, res) => {
           sourceUrl: true,
           sourceName: true,
           pointsValue: true,
-          readTimeEstimate: true,
           isFeatured: true,
           imageUrl: true,
           imageData: true,

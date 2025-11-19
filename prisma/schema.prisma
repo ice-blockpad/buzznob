@@ -79,7 +79,6 @@ model Article {
   sourceUrl        String?        @map("source_url")
   sourceName       String?        @map("source_name")
   pointsValue      Int            @default(10) @map("points_value")
-  readTimeEstimate Int?           @map("read_time_estimate")
   isFeatured       Boolean        @default(false) @map("is_featured")
   isFeaturedArticle Boolean       @default(false) @map("is_featured_article")
   manualReadCount   Int?           @map("manual_read_count")

@@ -832,13 +832,11 @@ router.post('/articles', authenticateToken, debugMiddleware, upload.fields([{ na
       sourceName,
       sourceUrl,
       pointsValue,
-      readTimeEstimate,
       isFeatured
     } = req.body;
 
     // Parse numeric values from FormData (which sends everything as strings)
     const parsedPointsValue = parseInt(pointsValue) || 10;
-    const parsedReadTimeEstimate = parseInt(readTimeEstimate) || 5;
     const parsedIsFeatured = isFeatured === 'true' || isFeatured === true;
 
     // Handle image - prefer Cloudflare R2 URL over base64
@@ -919,7 +917,6 @@ router.post('/articles', authenticateToken, debugMiddleware, upload.fields([{ na
         sourceName: sourceName || 'BuzzNob',
         sourceUrl: sourceUrl || null,
         pointsValue: parsedPointsValue,
-        readTimeEstimate: parsedReadTimeEstimate,
         isFeatured: parsedIsFeatured,
         imageUrl: finalImageUrl || null,
         imageData: finalImageData || null,
@@ -1126,7 +1123,6 @@ router.put('/articles/:id', authenticateToken, async (req, res) => {
       'sourceName',
       'sourceUrl',
       'pointsValue',
-      'readTimeEstimate',
       'isFeatured',
       'imageUrl'
     ];
