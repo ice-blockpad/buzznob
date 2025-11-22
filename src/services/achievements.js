@@ -2,7 +2,7 @@ const { prisma } = require('../config/database');
 const pushNotificationService = require('./pushNotificationService');
 
 // Define app launch date (you can adjust this to your actual launch date)
-const APP_LAUNCH_DATE = new Date('2025-10-23');
+const APP_LAUNCH_DATE = new Date('2025-11-23');
 const FIRST_MONTH_END = new Date(APP_LAUNCH_DATE.getTime() + (30 * 24 * 60 * 60 * 1000));
 
 /**
