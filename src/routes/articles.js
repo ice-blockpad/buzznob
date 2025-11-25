@@ -5,24 +5,30 @@ const { errorHandler } = require('../middleware/errorHandler');
 const { deduplicateRequest } = require('../middleware/deduplication');
 const cacheService = require('../services/cacheService');
 const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+const { parsePaginationParams, buildCursorQuery, buildOffsetQuery, buildPaginationResponse, buildPaginationResponseWithTotal } = require('../utils/pagination');
 
 const router = express.Router();
 
 // Get trending articles (with write-through cache)
 router.get('/trending', optionalAuth, async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 10;
-    const cacheKey = `articles:trending:${limit}`;
+    const pagination = parsePaginationParams(req, { defaultLimit: 10, maxLimit: 50 });
+    const cacheKey = `articles:trending:${pagination.limit}:${pagination.cursor || 'initial'}`;
 
     // Write-through cache: Get from cache, or fetch from DB and cache
     const articlesWithReadCount = await cacheService.getOrSet(cacheKey, async () => {
+      // Build query with cursor support
+      const cursorQuery = buildCursorQuery(pagination, 'id', 'desc');
+      const where = {
+        isFeatured: true,
+        status: 'published',
+        ...cursorQuery.where
+      };
+
       const articles = await prisma.article.findMany({
-        where: {
-          isFeatured: true,
-          status: 'published'
-        },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
+        where,
+        orderBy: cursorQuery.orderBy,
+        take: cursorQuery.take,
         select: {
           id: true,
           title: true,
@@ -96,18 +102,23 @@ router.get('/trending', optionalAuth, async (req, res) => {
 // Get featured articles (with write-through cache)
 router.get('/featured', optionalAuth, async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 10;
-    const cacheKey = `articles:featured:${limit}`;
+    const pagination = parsePaginationParams(req, { defaultLimit: 10, maxLimit: 50 });
+    const cacheKey = `articles:featured:${pagination.limit}:${pagination.cursor || 'initial'}`;
 
     // Write-through cache: Get from cache, or fetch from DB and cache
     const articlesWithReadCount = await cacheService.getOrSet(cacheKey, async () => {
+      // Build query with cursor support
+      const cursorQuery = buildCursorQuery(pagination, 'id', 'desc');
+      const where = {
+        isFeaturedArticle: true,
+        status: 'published',
+        ...cursorQuery.where
+      };
+
       const articles = await prisma.article.findMany({
-        where: {
-          isFeaturedArticle: true,
-          status: 'published'
-        },
-        orderBy: { createdAt: 'desc' },
-        take: limit,
+        where,
+        orderBy: cursorQuery.orderBy,
+        take: cursorQuery.take,
         select: {
           id: true,
           title: true,
@@ -164,9 +175,14 @@ router.get('/featured', optionalAuth, async (req, res) => {
       });
     }, 3600); // 1 hour TTL (write-through cache with safety net)
 
+    const paginationResponse = buildPaginationResponse(articlesWithReadCount, pagination, 'id');
+
     res.json({
       success: true,
-      data: { articles: articlesWithReadCount }
+      data: {
+        articles: paginationResponse.data,
+        ...paginationResponse
+      }
     });
 
   } catch (error) {
@@ -182,49 +198,90 @@ router.get('/featured', optionalAuth, async (req, res) => {
 // Get articles with pagination and filtering
 router.get('/', optionalAuth, async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const pagination = parsePaginationParams(req);
     const category = req.query.category;
     const featured = req.query.featured === 'true';
-    const skip = (page - 1) * limit;
 
-    const where = {
+    const baseWhere = {
       status: 'published' // Only show published articles to public
     };
-    if (category) where.category = category;
-    if (featured) where.isFeatured = true;
+    if (category) baseWhere.category = category;
+    if (featured) baseWhere.isFeatured = true;
 
-    const articles = await prisma.article.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit,
-      select: {
-        id: true,
-        title: true,
-        content: true,
-        category: true,
-        sourceUrl: true,
-        sourceName: true,
-        pointsValue: true,
-        isFeatured: true,
-        manualReadCount: true,
-        imageUrl: true,
-        imageData: true,
-        imageType: true,
-        createdAt: true,
-        author: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            role: true
+    // Use cursor-based pagination if cursor provided, otherwise use offset
+    let articles;
+    let totalCount = null;
+
+    if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+      // Cursor-based pagination (recommended)
+      const cursorQuery = buildCursorQuery(pagination, 'id', 'desc');
+      const where = {
+        ...baseWhere,
+        ...cursorQuery.where
+      };
+
+      articles = await prisma.article.findMany({
+        where,
+        orderBy: cursorQuery.orderBy,
+        take: cursorQuery.take,
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          category: true,
+          sourceUrl: true,
+          sourceName: true,
+          pointsValue: true,
+          isFeatured: true,
+          manualReadCount: true,
+          imageUrl: true,
+          imageData: true,
+          imageType: true,
+          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              role: true
+            }
           }
         }
-      }
-    });
-
-    const totalCount = await prisma.article.count({ where });
+      });
+    } else {
+      // Offset-based pagination (backward compatibility)
+      const offsetQuery = buildOffsetQuery(pagination, 'id', 'desc');
+      articles = await prisma.article.findMany({
+        where: baseWhere,
+        orderBy: offsetQuery.orderBy,
+        skip: offsetQuery.skip,
+        take: offsetQuery.take,
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          category: true,
+          sourceUrl: true,
+          sourceName: true,
+          pointsValue: true,
+          isFeatured: true,
+          manualReadCount: true,
+          imageUrl: true,
+          imageData: true,
+          imageType: true,
+          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              role: true
+            }
+          }
+        }
+      });
+      totalCount = await prisma.article.count({ where: baseWhere });
+    }
 
     // Get read counts for all articles
     const articleIds = articles.map(a => a.id);
@@ -279,16 +336,21 @@ router.get('/', optionalAuth, async (req, res) => {
       });
     }
 
+    // Build pagination response
+    let paginationResponse;
+    if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+      // Cursor-based response
+      paginationResponse = buildPaginationResponse(articlesWithReadStatus, pagination, 'id');
+    } else {
+      // Offset-based response with total count
+      paginationResponse = buildPaginationResponseWithTotal(articlesWithReadStatus, pagination, totalCount);
+    }
+
     res.json({
       success: true,
       data: {
-        articles: articlesWithReadStatus,
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          pages: Math.ceil(totalCount / limit)
-        }
+        articles: paginationResponse.data,
+        ...paginationResponse
       }
     });
 
@@ -306,9 +368,7 @@ router.get('/', optionalAuth, async (req, res) => {
 router.get('/search', optionalAuth, async (req, res) => {
   try {
     const { q: query, category } = req.query;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
+    const pagination = parsePaginationParams(req);
 
     if (!query) {
       return res.status(400).json({
@@ -318,7 +378,7 @@ router.get('/search', optionalAuth, async (req, res) => {
       });
     }
 
-    const where = {
+    const baseWhere = {
       status: 'published', // Only search published articles
       OR: [
         { title: { contains: query, mode: 'insensitive' } },
@@ -327,14 +387,25 @@ router.get('/search', optionalAuth, async (req, res) => {
     };
 
     if (category) {
-      where.category = category;
+      baseWhere.category = category;
     }
 
-    const articles = await prisma.article.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: limit,
+    // Use cursor-based pagination if cursor provided, otherwise use offset
+    let articles;
+    let totalCount = null;
+
+    if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+      // Cursor-based pagination (recommended)
+      const cursorQuery = buildCursorQuery(pagination, 'id', 'desc');
+      const where = {
+        ...baseWhere,
+        ...cursorQuery.where
+      };
+
+      articles = await prisma.article.findMany({
+        where,
+        orderBy: cursorQuery.orderBy,
+        take: cursorQuery.take,
       select: {
         id: true,
         title: true,
@@ -359,8 +430,40 @@ router.get('/search', optionalAuth, async (req, res) => {
         }
       }
     });
-
-    const totalCount = await prisma.article.count({ where });
+    } else {
+      // Offset-based pagination (backward compatibility)
+      const offsetQuery = buildOffsetQuery(pagination, 'id', 'desc');
+      articles = await prisma.article.findMany({
+        where: baseWhere,
+        orderBy: offsetQuery.orderBy,
+        skip: offsetQuery.skip,
+        take: offsetQuery.take,
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          category: true,
+          sourceUrl: true,
+          sourceName: true,
+          pointsValue: true,
+          isFeatured: true,
+          manualReadCount: true,
+          imageUrl: true,
+          imageData: true,
+          imageType: true,
+          createdAt: true,
+          author: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              role: true
+            }
+          }
+        }
+      });
+      totalCount = await prisma.article.count({ where: baseWhere });
+    }
 
     // Get read counts for all articles
     const articleIds = articles.map(a => a.id);
@@ -415,16 +518,21 @@ router.get('/search', optionalAuth, async (req, res) => {
       });
     }
 
+    // Build pagination response
+    let paginationResponse;
+    if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+      // Cursor-based response
+      paginationResponse = buildPaginationResponse(articlesWithReadStatus, pagination, 'id');
+    } else {
+      // Offset-based response with total count
+      paginationResponse = buildPaginationResponseWithTotal(articlesWithReadStatus, pagination, totalCount);
+    }
+
     res.json({
       success: true,
       data: {
-        articles: articlesWithReadStatus,
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          pages: Math.ceil(totalCount / limit)
-        }
+        articles: paginationResponse.data,
+        ...paginationResponse
       }
     });
 
@@ -442,9 +550,7 @@ router.get('/search', optionalAuth, async (req, res) => {
 router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
   try {
     const { creatorId } = req.params;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const offset = (page - 1) * limit;
+    const pagination = parsePaginationParams(req);
 
     // Verify creator exists
     const creator = await prisma.user.findUnique({
@@ -460,15 +566,27 @@ router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
       });
     }
 
-    // Get articles by creator
-    const articles = await prisma.article.findMany({
-      where: {
-        authorId: creatorId,
-        status: 'published' // Only show published articles
-      },
-      orderBy: { createdAt: 'desc' },
-      skip: offset,
-      take: limit,
+    const baseWhere = {
+      authorId: creatorId,
+      status: 'published' // Only show published articles
+    };
+
+    // Use cursor-based pagination if cursor provided, otherwise use offset
+    let articles;
+    let totalCount = null;
+
+    if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+      // Cursor-based pagination (recommended)
+      const cursorQuery = buildCursorQuery(pagination, 'id', 'desc');
+      const where = {
+        ...baseWhere,
+        ...cursorQuery.where
+      };
+
+      articles = await prisma.article.findMany({
+        where,
+        orderBy: cursorQuery.orderBy,
+        take: cursorQuery.take,
       select: {
         id: true,
         title: true,
@@ -487,25 +605,50 @@ router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
         publishedAt: true
       }
     });
+    } else {
+      // Offset-based pagination (backward compatibility)
+      const offsetQuery = buildOffsetQuery(pagination, 'id', 'desc');
+      articles = await prisma.article.findMany({
+        where: baseWhere,
+        orderBy: offsetQuery.orderBy,
+        skip: offsetQuery.skip,
+        take: offsetQuery.take,
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          excerpt: true,
+          category: true,
+          sourceUrl: true,
+          sourceName: true,
+          pointsValue: true,
+          isFeatured: true,
+          imageUrl: true,
+          imageData: true,
+          imageType: true,
+          status: true,
+          createdAt: true,
+          publishedAt: true
+        }
+      });
+      totalCount = await prisma.article.count({ where: baseWhere });
+    }
 
-    // Get total count for pagination
-    const totalCount = await prisma.article.count({
-      where: {
-        authorId: creatorId,
-        status: 'published'
-      }
-    });
+    // Build pagination response
+    let paginationResponse;
+    if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+      // Cursor-based response
+      paginationResponse = buildPaginationResponse(articles, pagination, 'id');
+    } else {
+      // Offset-based response with total count
+      paginationResponse = buildPaginationResponseWithTotal(articles, pagination, totalCount);
+    }
 
     res.json({
       success: true,
       data: {
-        articles,
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          totalPages: Math.ceil(totalCount / limit)
-        }
+        articles: paginationResponse.data,
+        ...paginationResponse
       }
     });
 

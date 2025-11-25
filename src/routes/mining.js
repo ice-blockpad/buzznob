@@ -5,6 +5,7 @@ const { errorHandler } = require('../middleware/errorHandler');
 const { deduplicateRequest } = require('../middleware/deduplication');
 const pushNotificationService = require('../services/pushNotificationService');
 const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+const { parsePaginationParams, buildCursorQuery, buildOffsetQuery, buildPaginationResponse, buildPaginationResponseWithTotal } = require('../utils/pagination');
 
 const router = express.Router();
 
@@ -637,24 +638,58 @@ router.post('/claim', authenticateToken, async (req, res) => {
 router.get('/history', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const limit = parseInt(req.query.limit) || 10;
-    
-    const claims = await prisma.miningClaim.findMany({
-      where: { userId },
-      orderBy: { claimedAt: 'desc' },
-      take: limit
-    });
+    const pagination = parsePaginationParams(req, { defaultLimit: 20, maxLimit: 100 });
+
+    // Use cursor-based pagination if cursor provided, otherwise use offset
+    let claims;
+    let totalCount = null;
+
+    if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+      // Cursor-based pagination (recommended)
+      const cursorQuery = buildCursorQuery(pagination, 'id', 'desc');
+      const where = {
+        userId,
+        ...cursorQuery.where
+      };
+
+      claims = await prisma.miningClaim.findMany({
+        where,
+        orderBy: cursorQuery.orderBy,
+        take: cursorQuery.take
+      });
+    } else {
+      // Offset-based pagination (backward compatibility)
+      const offsetQuery = buildOffsetQuery(pagination, 'claimedAt', 'desc');
+      claims = await prisma.miningClaim.findMany({
+        where: { userId },
+        orderBy: offsetQuery.orderBy,
+        skip: offsetQuery.skip,
+        take: offsetQuery.take
+      });
+      totalCount = await prisma.miningClaim.count({ where: { userId } });
+    }
+
+    const claimsData = claims.map(claim => ({
+      id: claim.id,
+      amount: claim.amount,
+      miningRate: claim.miningRate,
+      referralBonus: claim.referralBonus,
+      claimedAt: claim.claimedAt.toISOString()
+    }));
+
+    // Build pagination response
+    let paginationResponse;
+    if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+      paginationResponse = buildPaginationResponse(claimsData, pagination, 'id');
+    } else {
+      paginationResponse = buildPaginationResponseWithTotal(claimsData, pagination, totalCount);
+    }
 
     res.json({
       success: true,
       data: {
-        claims: claims.map(claim => ({
-          id: claim.id,
-          amount: claim.amount,
-          miningRate: claim.miningRate,
-          referralBonus: claim.referralBonus,
-          claimedAt: claim.claimedAt.toISOString()
-        }))
+        claims: paginationResponse.data,
+        ...paginationResponse
       }
     });
   } catch (error) {
@@ -669,39 +704,53 @@ router.get('/history', authenticateToken, async (req, res) => {
 // Get mining leaderboard
 router.get('/leaderboard', authenticateToken, async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 20;
+    const pagination = parsePaginationParams(req, { defaultLimit: 20, maxLimit: 100 });
     
     // Get top miners by total earned
+    // Note: For leaderboards, we typically want offset-based pagination to show ranks
+    const offsetQuery = buildOffsetQuery(pagination, 'id', 'asc');
+    
     const topMiners = await prisma.user.findMany({
       include: {
         miningClaims: {
           select: {
             amount: true
           }
+        },
+        _count: {
+          select: {
+            referrals: true
+          }
         }
       },
-      take: limit
+      orderBy: offsetQuery.orderBy,
+      skip: offsetQuery.skip,
+      take: offsetQuery.take
     });
 
-    // Calculate total earned for each user
+    // Calculate total earned for each user and sort
     const leaderboard = topMiners
       .map(user => ({
         id: user.id,
         name: user.displayName || user.email,
         avatar: user.avatarUrl,
         totalEarned: user.miningClaims.reduce((sum, claim) => sum + claim.amount, 0),
-        referralCount: user.referrals?.length || 0
+        referralCount: user._count?.referrals || 0
       }))
       .sort((a, b) => b.totalEarned - a.totalEarned)
       .map((user, index) => ({
         ...user,
-        rank: index + 1
+        rank: pagination.offset + index + 1
       }));
+
+    const totalCount = await prisma.user.count();
+    const paginationResponse = buildPaginationResponseWithTotal(leaderboard, pagination, totalCount);
 
     res.json({
       success: true,
       data: {
-        leaderboard
+        leaderboard: paginationResponse.data,
+        ...paginationResponse
       }
     });
   } catch (error) {

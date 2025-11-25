@@ -515,8 +515,8 @@ router.get('/my-rewards', authenticateToken, async (req, res) => {
 router.get('/leaderboard', async (req, res) => {
   try {
     const period = req.query.period || 'weekly';
-    const limit = parseInt(req.query.limit) || 50;
-    const cacheKey = `leaderboard:${period}:${limit}`;
+    const pagination = parsePaginationParams(req, { defaultLimit: 50, maxLimit: 100 });
+    const cacheKey = `leaderboard:${period}:${pagination.offset || 'initial'}:${pagination.limit}`;
 
     // Calculate dates outside the callback so they're accessible to the SQL query
     let startDate;
@@ -566,11 +566,12 @@ router.get('/leaderboard', async (req, res) => {
         FROM users u
         LEFT JOIN user_period_points upp ON u.id = upp.user_id
         ORDER BY u.points DESC
-        LIMIT ${limit}
+        LIMIT ${pagination.limit}
+        OFFSET ${pagination.offset || 0}
       `;
 
-      return result.map((user, index) => ({
-        rank: index + 1,
+      const leaderboardData = result.map((user, index) => ({
+        rank: pagination.offset + index + 1,
         id: user.id,
         username: user.username,
         displayName: user.displayName,
@@ -580,13 +581,29 @@ router.get('/leaderboard', async (req, res) => {
         periodPoints: parseInt(user.periodPoints),
         streakCount: parseInt(user.streakCount)
       }));
+
+      // Get total count for pagination
+      const totalCountResult = await prisma.$queryRaw`
+        SELECT COUNT(*) as total FROM users WHERE is_active = true
+      `;
+      const totalCount = parseInt(totalCountResult[0]?.total || 0);
+
+      const paginationResponse = buildPaginationResponseWithTotal(leaderboardData, pagination, totalCount);
+
+      return {
+        leaderboard: paginationResponse.data,
+        ...paginationResponse
+      };
     }, 600); // 10 minutes TTL (time-based cache, no write-through refresh)
 
     res.json({
       success: true,
       data: {
-        leaderboard,
-        period
+        leaderboard: leaderboard.leaderboard,
+        period,
+        ...(leaderboard.nextOffset !== undefined ? { nextOffset: leaderboard.nextOffset } : {}),
+        ...(leaderboard.hasMore !== undefined ? { hasMore: leaderboard.hasMore } : {}),
+        limit: leaderboard.limit
       }
     });
 

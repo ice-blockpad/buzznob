@@ -4,6 +4,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const upload = require('../middleware/upload');
 const cacheService = require('../services/cacheService');
+const { parsePaginationParams, buildCursorQuery, buildOffsetQuery, buildPaginationResponse, buildPaginationResponseWithTotal } = require('../utils/pagination');
 
 const router = express.Router();
 
@@ -146,51 +147,82 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
 router.get('/articles', authenticateToken, requireCreator, async (req, res) => {
   try {
     const userId = req.user.id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const pagination = parsePaginationParams(req);
     const status = req.query.status; // 'approved', 'rejected', 'pending', or null for all
-    const skip = (page - 1) * limit;
 
-    // Create cache key based on user, page, limit, and status
-    const cacheKey = `creator:articles:${userId}:${page}:${limit}:${status || 'all'}`;
+    // Create cache key based on user, cursor/offset, limit, and status
+    const cacheKey = `creator:articles:${userId}:${pagination.cursor || pagination.offset || 'initial'}:${pagination.limit}:${status || 'all'}`;
 
     // Write-through cache: Get from cache, or fetch from DB and cache
     const result = await cacheService.getOrSet(cacheKey, async () => {
-      const where = {
+      const baseWhere = {
         authorId: userId
       };
 
       if (status) {
-        where.status = status;
+        baseWhere.status = status;
       }
 
-      const articles = await prisma.article.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-        include: {
-          reviewer: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-              role: true
+      // Use cursor-based pagination if cursor provided, otherwise use offset
+      let articles;
+      let totalCount = null;
+
+      if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+        // Cursor-based pagination (recommended)
+        const cursorQuery = buildCursorQuery(pagination, 'id', 'desc');
+        const where = {
+          ...baseWhere,
+          ...cursorQuery.where
+        };
+
+        articles = await prisma.article.findMany({
+          where,
+          orderBy: cursorQuery.orderBy,
+          take: cursorQuery.take,
+          include: {
+            reviewer: {
+              select: {
+                id: true,
+                username: true,
+                displayName: true,
+                role: true
+              }
             }
           }
-        }
-      });
+        });
+      } else {
+        // Offset-based pagination (backward compatibility)
+        const offsetQuery = buildOffsetQuery(pagination, 'createdAt', 'desc');
+        articles = await prisma.article.findMany({
+          where: baseWhere,
+          orderBy: offsetQuery.orderBy,
+          skip: offsetQuery.skip,
+          take: offsetQuery.take,
+          include: {
+            reviewer: {
+              select: {
+                id: true,
+                username: true,
+                displayName: true,
+                role: true
+              }
+            }
+          }
+        });
+        totalCount = await prisma.article.count({ where: baseWhere });
+      }
 
-      const totalCount = await prisma.article.count({ where });
+      // Build pagination response
+      let paginationResponse;
+      if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+        paginationResponse = buildPaginationResponse(articles, pagination, 'id');
+      } else {
+        paginationResponse = buildPaginationResponseWithTotal(articles, pagination, totalCount);
+      }
 
       return {
-        articles,
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          pages: Math.ceil(totalCount / limit)
-        }
+        articles: paginationResponse.data,
+        ...paginationResponse
       };
     }, 3600); // 1 hour TTL (write-through cache with safety net)
 

@@ -5,6 +5,7 @@ const { errorHandler } = require('../middleware/errorHandler');
 const upload = require('../middleware/upload');
 const { deduplicateRequest } = require('../middleware/deduplication');
 const cacheService = require('../services/cacheService');
+const { parsePaginationParams, buildCursorQuery, buildOffsetQuery, buildPaginationResponse, buildPaginationResponseWithTotal } = require('../utils/pagination');
 
 const router = express.Router();
 
@@ -628,18 +629,16 @@ router.delete('/account', authenticateToken, async (req, res) => {
  // Get creators list (for social features) (with write-through cache)
 router.get('/creators', authenticateToken, async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const pagination = parsePaginationParams(req);
     const search = req.query.search || '';
-    const skip = (page - 1) * limit;
 
-    // Create cache key based on page, limit, and search
-    const cacheKey = `creators:list:${page}:${limit}:${search || 'all'}`;
+    // Create cache key based on cursor/offset, limit, and search
+    const cacheKey = `creators:list:${pagination.cursor || pagination.offset || 'initial'}:${pagination.limit}:${search || 'all'}`;
 
     // Write-through cache: Get from cache, or fetch from DB and cache
     const cachedData = await cacheService.getOrSet(cacheKey, async () => {
       // Build where clause for creators (users with creator or admin role)
-      const whereClause = {
+      const baseWhere = {
         role: {
           in: ['creator', 'admin']
         },
@@ -648,41 +647,91 @@ router.get('/creators', authenticateToken, async (req, res) => {
 
       // Add search functionality
       if (search) {
-        whereClause.OR = [
+        baseWhere.OR = [
           { username: { contains: search, mode: 'insensitive' } },
           { displayName: { contains: search, mode: 'insensitive' } },
           { bio: { contains: search, mode: 'insensitive' } }
         ];
       }
 
-      // Get creators with follower count
-      const creators = await prisma.user.findMany({
-        where: whereClause,
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          bio: true,
-          avatarUrl: true,
-          avatarData: true,
-          avatarType: true,
-          role: true,
-          points: true,
-          createdAt: true,
-          _count: {
-            select: {
-              followers: true
-            }
-          }
-        },
-        orderBy: {
-          points: 'desc'
-        },
-        skip,
-        take: limit
-      });
+      // Use cursor-based pagination if cursor provided, otherwise use offset
+      let creators;
+      let totalCount = null;
 
-      return creators;
+      if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+        // Cursor-based pagination (recommended) - ordered by points desc, then id
+        const cursorQuery = buildCursorQuery(pagination, 'id', 'desc');
+        const where = {
+          ...baseWhere,
+          ...cursorQuery.where
+        };
+
+        creators = await prisma.user.findMany({
+          where,
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            bio: true,
+            avatarUrl: true,
+            avatarData: true,
+            avatarType: true,
+            role: true,
+            points: true,
+            createdAt: true,
+            _count: {
+              select: {
+                followers: true
+              }
+            }
+          },
+          orderBy: [
+            { points: 'desc' },
+            { id: 'desc' }
+          ],
+          take: cursorQuery.take
+        });
+      } else {
+        // Offset-based pagination (backward compatibility)
+        const offsetQuery = buildOffsetQuery(pagination, 'points', 'desc');
+        creators = await prisma.user.findMany({
+          where: baseWhere,
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            bio: true,
+            avatarUrl: true,
+            avatarData: true,
+            avatarType: true,
+            role: true,
+            points: true,
+            createdAt: true,
+            _count: {
+              select: {
+                followers: true
+              }
+            }
+          },
+          orderBy: offsetQuery.orderBy,
+          skip: offsetQuery.skip,
+          take: offsetQuery.take
+        });
+        totalCount = await prisma.user.count({ where: baseWhere });
+      }
+
+      // Build pagination response
+      let paginationResponse;
+      if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+        paginationResponse = buildPaginationResponse(creators, pagination, 'id');
+      } else {
+        paginationResponse = buildPaginationResponseWithTotal(creators, pagination, totalCount);
+      }
+
+      return {
+        creators: paginationResponse.data,
+        ...paginationResponse
+      };
     }, 3600); // 1 hour TTL (write-through cache with safety net)
 
     // Get current user's following list (user-specific, not cached)
@@ -694,7 +743,7 @@ router.get('/creators', authenticateToken, async (req, res) => {
     const followingIds = userFollows.map(follow => follow.followingId);
 
     // Transform creators to include follower count
-    const creatorsWithStats = cachedData.map(creator => ({
+    const creatorsWithStats = cachedData.creators.map(creator => ({
       id: creator.id,
       username: creator.username,
       displayName: creator.displayName,
@@ -713,7 +762,11 @@ router.get('/creators', authenticateToken, async (req, res) => {
       success: true,
       data: {
         creators: creatorsWithStats,
-        followingIds
+        followingIds,
+        ...(cachedData.nextCursor !== undefined ? { nextCursor: cachedData.nextCursor } : {}),
+        ...(cachedData.nextOffset !== undefined ? { nextOffset: cachedData.nextOffset } : {}),
+        ...(cachedData.hasMore !== undefined ? { hasMore: cachedData.hasMore } : {}),
+        limit: cachedData.limit
       }
     });
 

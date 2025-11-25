@@ -4,6 +4,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { errorHandler } = require('../middleware/errorHandler');
 const { deduplicateRequest } = require('../middleware/deduplication');
 const cacheService = require('../services/cacheService');
+const { parsePaginationParams, buildCursorQuery, buildOffsetQuery, buildPaginationResponse, buildPaginationResponseWithTotal } = require('../utils/pagination');
 
 const router = express.Router();
 
@@ -230,38 +231,77 @@ router.get('/stats', authenticateToken, async (req, res) => {
 router.get('/history', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const page = parseInt(req.query.page) || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 100, 100); // Max 100 items per request
-    const skip = (page - 1) * limit;
-    const cacheKey = `referral:history:${userId}:page:${page}:limit:${limit}`;
+    const pagination = parsePaginationParams(req, { defaultLimit: 20, maxLimit: 100 });
+    const cacheKey = `referral:history:${userId}:${pagination.cursor || pagination.offset || 'initial'}:${pagination.limit}`;
 
     // Write-through cache: Get from cache or fetch and cache (1 hour TTL)
     const historyData = await cacheService.getOrSet(cacheKey, async () => {
-      const referrals = await prisma.user.findMany({
-        where: { referredBy: userId },
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          avatarUrl: true,
-          avatarData: true,
-          points: true,
-          role: true,
-          createdAt: true,
-          miningSessions: {
-            where: { isActive: true },
-            orderBy: { startedAt: 'desc' },
-            take: 1,
-            select: {
-              startedAt: true,
-              duration: true
+      // Use cursor-based pagination if cursor provided, otherwise use offset
+      let referrals;
+      let totalCount = null;
+
+      if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+        // Cursor-based pagination (recommended)
+        const cursorQuery = buildCursorQuery(pagination, 'id', 'desc');
+        const where = {
+          referredBy: userId,
+          ...cursorQuery.where
+        };
+
+        referrals = await prisma.user.findMany({
+          where,
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarUrl: true,
+            avatarData: true,
+            points: true,
+            role: true,
+            createdAt: true,
+            miningSessions: {
+              where: { isActive: true },
+              orderBy: { startedAt: 'desc' },
+              take: 1,
+              select: {
+                startedAt: true,
+                duration: true
+              }
             }
-          }
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit
-      });
+          },
+          orderBy: cursorQuery.orderBy,
+          take: cursorQuery.take
+        });
+      } else {
+        // Offset-based pagination (backward compatibility)
+        const offsetQuery = buildOffsetQuery(pagination, 'createdAt', 'desc');
+        referrals = await prisma.user.findMany({
+          where: { referredBy: userId },
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarUrl: true,
+            avatarData: true,
+            points: true,
+            role: true,
+            createdAt: true,
+            miningSessions: {
+              where: { isActive: true },
+              orderBy: { startedAt: 'desc' },
+              take: 1,
+              select: {
+                startedAt: true,
+                duration: true
+              }
+            }
+          },
+          orderBy: offsetQuery.orderBy,
+          skip: offsetQuery.skip,
+          take: offsetQuery.take
+        });
+        totalCount = await prisma.user.count({ where: { referredBy: userId } });
+      }
 
       // Add mining status based on active mining sessions (active if mining started within last 6 hours)
       const now = new Date();
@@ -278,24 +318,25 @@ router.get('/history', authenticateToken, async (req, res) => {
         };
       });
 
-      const totalCount = await prisma.user.count({
-        where: { referredBy: userId }
-      });
-
       // Count active and inactive referrals
       const activeCount = referralsWithStatus.filter(r => r.isActive).length;
       const inactiveCount = referralsWithStatus.filter(r => !r.isActive).length;
 
+      // Build pagination response
+      let paginationResponse;
+      if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
+        // Cursor-based response
+        paginationResponse = buildPaginationResponse(referralsWithStatus, pagination, 'id');
+      } else {
+        // Offset-based response with total count
+        paginationResponse = buildPaginationResponseWithTotal(referralsWithStatus, pagination, totalCount);
+      }
+
       return {
-        referrals: referralsWithStatus,
+        referrals: paginationResponse.data,
         activeCount,
         inactiveCount,
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          pages: Math.ceil(totalCount / limit)
-        }
+        ...paginationResponse
       };
     }, 3600); // 1 hour TTL
 
