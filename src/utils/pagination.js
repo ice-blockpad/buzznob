@@ -113,15 +113,17 @@ function buildOffsetQuery(params, orderField = 'id', orderDirection = 'desc') {
  */
 function buildPaginationResponse(data, params, cursorField = 'id') {
   const { limit, offset, cursor, page, hasCursor, hasOffset } = params;
-  const hasMore = data.length === limit;
+  // For cursor pagination, we fetch limit + 1, so hasMore is true if we got more than limit
+  const hasMore = data.length > limit;
+  const paginatedData = hasMore ? data.slice(0, limit) : data;
 
   // Cursor-based pagination response
   if (hasCursor || (!hasOffset && !hasCursor)) {
-    const lastItem = data.length > 0 ? data[data.length - 1] : null;
+    const lastItem = paginatedData.length > 0 ? paginatedData[paginatedData.length - 1] : null;
     const nextCursor = hasMore && lastItem ? lastItem[cursorField] : null;
 
     return {
-      data,
+      data: paginatedData,
       limit,
       nextCursor,
       hasMore

@@ -587,24 +587,23 @@ router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
         where,
         orderBy: cursorQuery.orderBy,
         take: cursorQuery.take,
-      select: {
-        id: true,
-        title: true,
-        content: true,
-        excerpt: true,
-        category: true,
-        sourceUrl: true,
-        sourceName: true,
-        pointsValue: true,
-        isFeatured: true,
-        imageUrl: true,
-        imageData: true,
-        imageType: true,
-        status: true,
-        createdAt: true,
-        publishedAt: true
-      }
-    });
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          category: true,
+          sourceUrl: true,
+          sourceName: true,
+          pointsValue: true,
+          isFeatured: true,
+          imageUrl: true,
+          imageData: true,
+          imageType: true,
+          status: true,
+          createdAt: true,
+          publishedAt: true
+        }
+      });
     } else {
       // Offset-based pagination (backward compatibility)
       const offsetQuery = buildOffsetQuery(pagination, 'id', 'desc');
@@ -617,7 +616,6 @@ router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
           id: true,
           title: true,
           content: true,
-          excerpt: true,
           category: true,
           sourceUrl: true,
           sourceName: true,
