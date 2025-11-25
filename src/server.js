@@ -6,6 +6,15 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 require('dotenv').config();
 
+// Validate environment variables before proceeding
+const { validateEnv } = require('./config/env');
+try {
+  validateEnv();
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const articleRoutes = require('./routes/articles');

@@ -5,24 +5,6 @@ const errorHandler = (err, req, res, next) => {
   // Log error
   console.error('Error:', err);
 
-  // Mongoose bad ObjectId
-  if (err.name === 'CastError') {
-    const message = 'Resource not found';
-    error = { message, statusCode: 404 };
-  }
-
-  // Mongoose duplicate key
-  if (err.code === 11000) {
-    const message = 'Duplicate field value entered';
-    error = { message, statusCode: 400 };
-  }
-
-  // Mongoose validation error
-  if (err.name === 'ValidationError') {
-    const message = Object.values(err.errors).map(val => val.message).join(', ');
-    error = { message, statusCode: 400 };
-  }
-
   // JWT errors
   if (err.name === 'JsonWebTokenError') {
     const message = 'Invalid token';
@@ -43,6 +25,23 @@ const errorHandler = (err, req, res, next) => {
   if (err.code === 'P2025') {
     const message = 'Record not found';
     error = { message, statusCode: 404 };
+  }
+
+  // Prisma connection errors
+  if (err.code === 'P1001') {
+    const message = 'Database connection error';
+    error = { message, statusCode: 503 };
+  }
+
+  if (err.code === 'P1008') {
+    const message = 'Database operation timed out';
+    error = { message, statusCode: 504 };
+  }
+
+  // Validation errors (from express-validator or custom validation)
+  if (err.name === 'ValidationError' || err.type === 'validation') {
+    const message = err.message || 'Validation error';
+    error = { message, statusCode: 400 };
   }
 
   res.status(error.statusCode || 500).json({

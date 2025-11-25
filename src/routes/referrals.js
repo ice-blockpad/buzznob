@@ -231,7 +231,7 @@ router.get('/history', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const limit = Math.min(parseInt(req.query.limit) || 100, 100); // Max 100 items per request
     const skip = (page - 1) * limit;
     const cacheKey = `referral:history:${userId}:page:${page}:limit:${limit}`;
 
