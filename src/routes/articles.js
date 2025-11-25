@@ -654,10 +654,12 @@ router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
 
   } catch (error) {
     console.error('Get articles by creator error:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       error: 'GET_CREATOR_ARTICLES_ERROR',
-      message: 'Failed to get creator articles'
+      message: 'Failed to get creator articles',
+      ...(process.env.NODE_ENV === 'development' && { details: error.message })
     });
   }
 });

@@ -30,7 +30,12 @@ function parsePaginationParams(req, options = {}) {
   }
 
   // Parse cursor (for cursor-based pagination)
-  const cursor = req.query.cursor ? parseInt(req.query.cursor) : null;
+  // Cursor can be an ID (number) or timestamp (string), so we keep it as string if it's not a number
+  let cursor = null;
+  if (req.query.cursor) {
+    const parsed = parseInt(req.query.cursor);
+    cursor = isNaN(parsed) ? req.query.cursor : parsed;
+  }
 
   // Parse offset (for offset-based pagination, backward compatibility)
   const offset = req.query.offset !== undefined ? Math.max(0, parseInt(req.query.offset) || 0) : null;
@@ -72,10 +77,11 @@ function buildCursorQuery(params, cursorField = 'id', orderDirection = 'desc') {
     [cursorField]: orderDirection
   };
 
+  // Fetch limit + 1 to check if there are more items
   return {
     where,
     orderBy,
-    take: limit
+    take: limit + 1
   };
 }
 

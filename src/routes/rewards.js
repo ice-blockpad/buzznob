@@ -5,6 +5,7 @@ const { errorHandler } = require('../middleware/errorHandler');
 const { deduplicateRequest } = require('../middleware/deduplication');
 const cacheService = require('../services/cacheService');
 const { refreshUserAndLeaderboardCaches } = require('../services/cacheRefreshHelpers');
+const { parsePaginationParams, buildPaginationResponseWithTotal } = require('../utils/pagination');
 
 const router = express.Router();
 
