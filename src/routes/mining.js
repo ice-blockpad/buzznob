@@ -271,15 +271,50 @@ router.get('/stats', authenticateToken, async (req, res) => {
       const now = new Date();
 
       if (activeSession) {
-        // Session is active and hasn't reached its end time (database already filtered this)
-        isMining = true;
-        timeRemaining = activeSession.endsAt - now;
-        currentMiningRate = activeSession.currentRate;
-        sessionStartTime = activeSession.startedAt;
+        // Recalculate timeRemaining using the same 'now' timestamp to avoid race conditions
+        // The query filtered by endsAt > new Date(), but time has passed since then
+        timeRemaining = activeSession.endsAt.getTime() - now.getTime();
+        
+        // CRITICAL FIX: If timeRemaining is <= 0, the session has expired
+        // Finalize it immediately and don't treat it as active
+        if (timeRemaining <= 0) {
+          // Session expired between query and calculation - finalize it now
+          await updateMiningProgress(activeSession.id);
+          // Don't set isMining = true, treat as expired
+          // Will fall through to check for completedUnclaimedSession
+        } else {
+          // Session is still active with positive time remaining
+          isMining = true;
+          currentMiningRate = activeSession.currentRate;
+          sessionStartTime = activeSession.startedAt;
+        }
+      }
+      
+      // Check for completed unclaimed session (either from query or just finalized)
+      if (!isMining) {
+        // Re-query for completed unclaimed session in case we just finalized one
+        const completedUnclaimedSessionCheck = await prisma.miningSession.findFirst({
+          where: { 
+            userId, 
+            isCompleted: true, 
+            isClaimed: false 
+          },
+          orderBy: { startedAt: 'desc' }
+        });
+        
+        if (completedUnclaimedSessionCheck) {
+          // Ensure a rounded numeric value so UI properly shows the claim state
+          readyToClaim = parseFloat((completedUnclaimedSessionCheck.totalMined || 0).toFixed(4));
+          currentMiningRate = completedUnclaimedSessionCheck.currentRate;
+        } else if (completedUnclaimedSession) {
+          // Fallback to original query result
+          readyToClaim = parseFloat((completedUnclaimedSession.totalMined || 0).toFixed(4));
+          currentMiningRate = completedUnclaimedSession.currentRate;
+        }
       } else if (completedUnclaimedSession) {
-        // Ensure a rounded numeric value so UI properly shows the claim state
+        // If mining is active, we still might have a completed unclaimed session from before
+        // (shouldn't happen, but handle it gracefully)
         readyToClaim = parseFloat((completedUnclaimedSession.totalMined || 0).toFixed(4));
-        currentMiningRate = completedUnclaimedSession.currentRate;
       }
 
       return {
