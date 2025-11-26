@@ -592,35 +592,52 @@ router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
       // Get total users
       const totalUsers = await prisma.user.count();
       
-      // Get active users by time period
+      // Get active users by time period (based on daily reward claims)
+      // Uses UTC day boundaries to match daily reward system
       const now = new Date();
-      const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000);
-      const oneWeekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
-      const oneMonthAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
       
-      const activeToday = await prisma.user.count({
+      // UTC day helper functions (matching daily reward logic)
+      const startOfUtcDay = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+      const startOfUtcWeek = (d) => {
+        const day = d.getUTCDay();
+        const diff = d.getUTCDate() - day; // Sunday = 0
+        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff, 0, 0, 0, 0));
+      };
+      const startOfUtcMonth = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
+      
+      const todayUtcStart = startOfUtcDay(now);
+      const weekUtcStart = startOfUtcWeek(now);
+      const monthUtcStart = startOfUtcMonth(now);
+      
+      // Count unique users who claimed daily reward today (since 00:00 UTC)
+      const activeToday = await prisma.dailyReward.groupBy({
+        by: ['userId'],
         where: {
-          lastLogin: {
-            gte: oneDayAgo
+          claimedAt: {
+            gte: todayUtcStart
           }
         }
-      });
+      }).then(results => results.length);
       
-      const activeLastWeek = await prisma.user.count({
+      // Count unique users who claimed daily reward this week (since start of week UTC)
+      const activeLastWeek = await prisma.dailyReward.groupBy({
+        by: ['userId'],
         where: {
-          lastLogin: {
-            gte: oneWeekAgo
+          claimedAt: {
+            gte: weekUtcStart
           }
         }
-      });
+      }).then(results => results.length);
       
-      const activeLastMonth = await prisma.user.count({
+      // Count unique users who claimed daily reward this month (since start of month UTC)
+      const activeLastMonth = await prisma.dailyReward.groupBy({
+        by: ['userId'],
         where: {
-          lastLogin: {
-            gte: oneMonthAgo
+          claimedAt: {
+            gte: monthUtcStart
           }
         }
-      });
+      }).then(results => results.length);
       
       // Get total articles
       const totalArticles = await prisma.article.count();
