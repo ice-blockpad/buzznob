@@ -86,6 +86,69 @@ router.post('/generate-code', authenticateToken, async (req, res) => {
   }
 });
 
+// Get user info by referral code (public endpoint for referral page)
+router.get('/user-by-code', async (req, res) => {
+  try {
+    const { code } = req.query;
+    
+    if (!code) {
+      return res.status(400).json({
+        success: false,
+        error: 'MISSING_CODE',
+        message: 'Referral code is required'
+      });
+    }
+
+    const cacheKey = `referral:user-by-code:${code.toUpperCase()}`;
+
+    // Write-through cache: Get from cache or fetch and cache (1 hour TTL)
+    const userData = await cacheService.getOrSet(cacheKey, async () => {
+      const user = await prisma.user.findUnique({
+        where: { 
+          referralCode: code.toUpperCase().trim()
+        },
+        select: { 
+          username: true,
+          displayName: true,
+          firstName: true,
+          referralCode: true
+        }
+      });
+
+      if (!user) {
+        return null;
+      }
+
+      return {
+        username: user.username || user.displayName || user.firstName || null,
+        displayName: user.displayName || user.firstName || user.username || null,
+        referralCode: user.referralCode
+      };
+    }, 3600); // 1 hour TTL
+
+    if (!userData) {
+      return res.status(404).json({
+        success: false,
+        error: 'REFERRAL_CODE_NOT_FOUND',
+        message: 'Referral code not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: userData
+    });
+
+  } catch (error) {
+    console.error('Get user by referral code error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'REFERRAL_CODE_FETCH_ERROR',
+      message: 'Failed to get user by referral code'
+    });
+  }
+});
+
 // Get user's referral code
 router.get('/my-code', authenticateToken, async (req, res) => {
   try {

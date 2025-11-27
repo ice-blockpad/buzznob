@@ -61,12 +61,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// CORS configuration for mobile app
+// CORS configuration for mobile app and referral page
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
+    // Base allowed origins
     const allowedOrigins = [
       // Development origins
       'http://localhost:3000',
@@ -85,6 +86,17 @@ app.use(cors({
       'https://buzznob.app',
       'https://www.buzznob.app',
       
+      // Referral page domains (from environment variable)
+      // Format: comma-separated list of domains
+      ...(process.env.ALLOWED_REFERRAL_DOMAINS 
+        ? process.env.ALLOWED_REFERRAL_DOMAINS.split(',').map(domain => domain.trim())
+        : [
+            'http://localhost:3000', // Default referral page dev
+            'https://app.buzznob.xyz', // Production referral page
+            'https://referral.buzznob.xyz' // Alternative referral page domain
+          ]
+      ),
+      
       // Android development
       'http://10.0.2.2:8001',
       'http://10.0.3.2:8001',
@@ -94,11 +106,12 @@ app.use(cors({
       'http://127.0.0.1:8001'
     ];
     
-    // Allow all origins in development
-    if (process.env.NODE_ENV === 'development') {
+    // Allow all origins in development (only if explicitly set)
+    if (process.env.NODE_ENV === 'development' && process.env.ALLOW_ALL_ORIGINS === 'true') {
       return callback(null, true);
     }
     
+    // Check if origin is in allowed list
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
