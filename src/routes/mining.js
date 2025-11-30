@@ -84,6 +84,85 @@ async function updateMiningProgress(sessionId) {
   }
 }
 
+// Helper function to notify inactive referrals when referrer claims mining
+// Helper function to notify inactive referrals when referrer claims mining
+// Uses the same logic as the remind-inactive endpoint
+async function notifyInactiveReferralsOfClaim(referrerId, referrerName) {
+  try {
+    const now = new Date();
+    const sixHoursAgo = new Date(now - 6 * 60 * 60 * 1000);
+    
+    // Get all referrals that are currently inactive (not mining)
+    // Same query structure as remind-inactive endpoint
+    const inactiveReferrals = await prisma.user.findMany({
+      where: {
+        referredBy: referrerId,
+        pushToken: { not: null }, // Only users with push tokens
+      },
+      select: {
+        id: true,
+        pushToken: true,
+        username: true,
+        miningSessions: {
+          where: { isActive: true },
+          orderBy: { startedAt: 'desc' },
+          take: 1,
+          select: {
+            startedAt: true,
+          },
+        },
+      },
+    });
+
+    // Filter to only truly inactive referrals (no active mining session or session older than 6 hours)
+    // Same filtering logic as remind-inactive endpoint
+    const trulyInactive = inactiveReferrals.filter(referral => {
+      const latestSession = referral.miningSessions[0];
+      if (!latestSession) return true; // No mining session = inactive
+      return latestSession.startedAt < sixHoursAgo; // Session older than 6 hours = inactive
+    });
+
+    if (trulyInactive.length === 0) {
+      console.log(`📢 [MINING CLAIM NOTIFICATION] No inactive referrals to notify for user ${referrerId}`);
+      return;
+    }
+
+    // Send notifications to all inactive referrals
+    // Same notification sending pattern as remind-inactive endpoint
+    let notifiedCount = 0;
+    let failedCount = 0;
+
+    for (const referral of trulyInactive) {
+      try {
+        const notification = {
+          title: '⛏️ Your Referrer Just Claimed!',
+          body: `${referrerName} just claimed their mining rewards! Go claim yours too!`,
+          data: {
+            type: 'referrer_claimed_mining',
+            referrerName,
+          },
+        };
+
+        const result = await pushNotificationService.sendNotification(referral.pushToken, notification);
+        if (result.success) {
+          notifiedCount++;
+        } else {
+          failedCount++;
+          console.error(`Failed to notify referral ${referral.id}:`, result.error);
+        }
+      } catch (error) {
+        failedCount++;
+        console.error(`Error notifying referral ${referral.id}:`, error);
+      }
+    }
+
+    console.log(`📢 [MINING CLAIM NOTIFICATION] User ${referrerId} claimed mining - notified ${notifiedCount} inactive referrals`);
+  } catch (error) {
+    console.error('Error notifying inactive referrals of mining claim:', error);
+    // Don't throw - this is a non-critical notification
+  }
+}
+
 // Helper function to update mining rates for all referrers of a user
 async function updateReferrerMiningRates(userId) {
   try {
@@ -592,6 +671,14 @@ router.post('/claim', authenticateToken, async (req, res) => {
 
     // Update mining rates for all users who referred this user
     await updateReferrerMiningRates(userId);
+
+    // Notify inactive referrals that their referrer just claimed mining rewards
+    setImmediate(() => {
+      notifyInactiveReferralsOfClaim(userId, user.displayName || user.username || 'Your referrer')
+        .catch(err => {
+          console.error('Failed to notify inactive referrals of mining claim:', err);
+        });
+    });
 
     // Check for mining achievements
     const achievementsService = require('../services/achievements');
