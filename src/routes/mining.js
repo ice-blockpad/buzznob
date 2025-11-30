@@ -738,12 +738,17 @@ router.get('/history', authenticateToken, async (req, res) => {
       pagination.cursor || null
     );
 
+    // Determine next cursor (ID of last item in current page)
+    const nextCursor = result.claims.length > 0 && result.hasMore
+      ? result.claims[result.claims.length - 1].id
+      : null;
+
     res.json({
       success: true,
       data: {
         claims: result.claims,
         hasMore: result.hasMore,
-        nextCursor: result.claims.length > 0 ? result.claims[result.claims.length - 1].id : null
+        nextCursor
       }
     });
   } catch (error) {

@@ -110,7 +110,7 @@ async function aggregateMiningClaims(userId, cutoffDate) {
  * Get aggregated mining history (individual records + summaries)
  * @param {string} userId - User ID
  * @param {number} limit - Number of records to return
- * @param {string|null} cursor - Cursor for pagination
+ * @param {string|null} cursor - Cursor for pagination (ID of last returned item)
  * @returns {Promise<Object>} Mixed array of individual and summary records
  */
 async function getAggregatedHistory(userId, limit = 20, cursor = null) {
@@ -119,8 +119,8 @@ async function getAggregatedHistory(userId, limit = 20, cursor = null) {
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
 
-    // Get individual claims (last 30 days)
-    const individualClaims = await prisma.miningClaim.findMany({
+    // Get ALL individual claims (last 30 days) - we'll paginate after combining
+    const allIndividualClaims = await prisma.miningClaim.findMany({
       where: {
         userId,
         claimedAt: {
@@ -129,12 +129,11 @@ async function getAggregatedHistory(userId, limit = 20, cursor = null) {
       },
       orderBy: {
         claimedAt: 'desc'
-      },
-      take: limit
+      }
     });
 
-    // Get monthly summaries (last 12 months, excluding months already covered by individual claims)
-    const summaries = await prisma.miningClaimSummary.findMany({
+    // Get ALL monthly summaries (last 12 months)
+    const allSummaries = await prisma.miningClaimSummary.findMany({
       where: {
         userId,
         startDate: {
@@ -148,7 +147,7 @@ async function getAggregatedHistory(userId, limit = 20, cursor = null) {
     });
 
     // Format individual claims
-    const formattedIndividual = individualClaims.map(claim => ({
+    const formattedIndividual = allIndividualClaims.map(claim => ({
       id: claim.id,
       type: 'individual',
       amount: claim.amount,
@@ -158,7 +157,7 @@ async function getAggregatedHistory(userId, limit = 20, cursor = null) {
     }));
 
     // Format summaries
-    const formattedSummaries = summaries.map(summary => {
+    const formattedSummaries = allSummaries.map(summary => {
       // Format period as "January 2024"
       const [year, month] = summary.period.split('-');
       const date = new Date(parseInt(year), parseInt(month) - 1, 1);
@@ -187,14 +186,23 @@ async function getAggregatedHistory(userId, limit = 20, cursor = null) {
       return dateB - dateA; // Descending
     });
 
-    // Apply limit
-    const limited = combined.slice(0, limit);
+    // Handle cursor-based pagination
+    let startIndex = 0;
+    if (cursor) {
+      const cursorIndex = combined.findIndex(item => item.id === cursor);
+      if (cursorIndex !== -1) {
+        startIndex = cursorIndex + 1; // Start after the cursor item
+      }
+    }
+
+    // Get the requested page
+    const paginated = combined.slice(startIndex, startIndex + limit);
     
     // Determine if there's more data
-    const hasMore = combined.length > limit;
+    const hasMore = startIndex + limit < combined.length;
 
     return {
-      claims: limited,
+      claims: paginated,
       hasMore
     };
   } catch (error) {
