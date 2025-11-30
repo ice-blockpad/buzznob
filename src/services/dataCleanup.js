@@ -253,9 +253,13 @@ async function runCleanup() {
 
     // 4. Aggregate and cleanup Mining Claims
     console.log('💰 Aggregating and cleaning up mining claims...');
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    // Use current month start as cutoff (aggregate previous complete months)
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth();
+    const currentMonthStart = new Date(Date.UTC(currentYear, currentMonth, 1, 0, 0, 0, 0));
     const { aggregateAllUsersClaims } = require('./dataAggregation');
-    const aggregationResult = await aggregateAllUsersClaims(thirtyDaysAgo);
+    const aggregationResult = await aggregateAllUsersClaims(currentMonthStart);
     console.log(`✅ Mining claims aggregated: ${aggregationResult.summariesCreated} summaries, ${aggregationResult.claimsDeleted} deleted`);
     
     // Then cleanup claims older than 12 months

@@ -6,14 +6,14 @@ const { prisma } = require('../config/database');
  */
 
 /**
- * Aggregate mining claims older than 30 days into monthly summaries
+ * Aggregate mining claims from previous complete months into monthly summaries
  * @param {string} userId - User ID
- * @param {Date} cutoffDate - Date before which to aggregate (30 days ago)
+ * @param {Date} cutoffDate - Date before which to aggregate (start of current month)
  * @returns {Promise<number>} Number of summaries created
  */
 async function aggregateMiningClaims(userId, cutoffDate) {
   try {
-    // Get all claims older than cutoff date
+    // Get all claims from previous complete months (before current month)
     const oldClaims = await prisma.miningClaim.findMany({
       where: {
         userId,
@@ -108,6 +108,7 @@ async function aggregateMiningClaims(userId, cutoffDate) {
 
 /**
  * Get aggregated mining history (individual records + summaries)
+ * Option B: Current month = individual, Previous complete months = summaries
  * @param {string} userId - User ID
  * @param {number} limit - Number of records to return
  * @param {string|null} cursor - Cursor for pagination (ID of last returned item)
@@ -116,15 +117,23 @@ async function aggregateMiningClaims(userId, cutoffDate) {
 async function getAggregatedHistory(userId, limit = 20, cursor = null) {
   try {
     const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    
+    // Calculate current month boundaries (UTC)
+    const currentYear = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth();
+    const currentMonthStart = new Date(Date.UTC(currentYear, currentMonth, 1, 0, 0, 0, 0));
+    const currentMonthEnd = new Date(Date.UTC(currentYear, currentMonth + 1, 0, 23, 59, 59, 999));
+    
+    // Calculate 12 months ago (for summaries)
+    const oneYearAgo = new Date(Date.UTC(currentYear, currentMonth - 11, 1, 0, 0, 0, 0));
 
-    // Get ALL individual claims (last 30 days) - we'll paginate after combining
+    // Get ALL individual claims from current month only
     const allIndividualClaims = await prisma.miningClaim.findMany({
       where: {
         userId,
         claimedAt: {
-          gte: thirtyDaysAgo
+          gte: currentMonthStart,
+          lte: currentMonthEnd
         }
       },
       orderBy: {
@@ -132,13 +141,13 @@ async function getAggregatedHistory(userId, limit = 20, cursor = null) {
       }
     });
 
-    // Get ALL monthly summaries (last 12 months)
+    // Get ALL monthly summaries for previous complete months (last 12 months, excluding current month)
     const allSummaries = await prisma.miningClaimSummary.findMany({
       where: {
         userId,
         startDate: {
           gte: oneYearAgo,
-          lt: thirtyDaysAgo // Only summaries before individual records period
+          lt: currentMonthStart // Only summaries before current month
         }
       },
       orderBy: {
