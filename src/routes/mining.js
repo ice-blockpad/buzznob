@@ -629,7 +629,7 @@ router.post('/claim', authenticateToken, async (req, res) => {
         }
       });
 
-      // Update user's points and mining balance
+      // Update user's points, mining balance, and session count
       await tx.user.update({
         where: { id: userId },
         data: {
@@ -638,6 +638,9 @@ router.post('/claim', authenticateToken, async (req, res) => {
           },
           miningBalance: {
             increment: finalMinedAmount // Full decimal amount
+          },
+          totalMiningSessionsCount: {
+            increment: 1 // Increment completed sessions count
           }
         }
       });
@@ -721,62 +724,26 @@ router.post('/claim', authenticateToken, async (req, res) => {
   }
 });
 
-// Get claim history
+// Get claim history (with aggregation)
 router.get('/history', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const pagination = parsePaginationParams(req, { defaultLimit: 20, maxLimit: 100 });
 
-    // Use cursor-based pagination if cursor provided, otherwise use offset
-    let claims;
-    let totalCount = null;
-
-    if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
-      // Cursor-based pagination (recommended)
-      const cursorQuery = buildCursorQuery(pagination, 'id', 'desc');
-      const where = {
-        userId,
-        ...cursorQuery.where
-      };
-
-      claims = await prisma.miningClaim.findMany({
-        where,
-        orderBy: cursorQuery.orderBy,
-        take: cursorQuery.take
-      });
-    } else {
-      // Offset-based pagination (backward compatibility)
-      const offsetQuery = buildOffsetQuery(pagination, 'claimedAt', 'desc');
-      claims = await prisma.miningClaim.findMany({
-        where: { userId },
-        orderBy: offsetQuery.orderBy,
-        skip: offsetQuery.skip,
-        take: offsetQuery.take
-      });
-      totalCount = await prisma.miningClaim.count({ where: { userId } });
-    }
-
-    const claimsData = claims.map(claim => ({
-      id: claim.id,
-      amount: claim.amount,
-      miningRate: claim.miningRate,
-      referralBonus: claim.referralBonus,
-      claimedAt: claim.claimedAt.toISOString()
-    }));
-
-    // Build pagination response
-    let paginationResponse;
-    if (pagination.hasCursor || (!pagination.hasOffset && !pagination.hasCursor)) {
-      paginationResponse = buildPaginationResponse(claimsData, pagination, 'id');
-    } else {
-      paginationResponse = buildPaginationResponseWithTotal(claimsData, pagination, totalCount);
-    }
+    // Use data aggregation service to get mixed individual + summary records
+    const { getAggregatedHistory } = require('../services/dataAggregation');
+    const result = await getAggregatedHistory(
+      userId,
+      pagination.limit,
+      pagination.cursor || null
+    );
 
     res.json({
       success: true,
       data: {
-        claims: paginationResponse.data,
-        ...paginationResponse
+        claims: result.claims,
+        hasMore: result.hasMore,
+        nextCursor: result.claims.length > 0 ? result.claims[result.claims.length - 1].id : null
       }
     });
   } catch (error) {

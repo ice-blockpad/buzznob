@@ -759,15 +759,15 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
       });
     }
 
-    // Check if user already read this article
-    const existingActivity = await prisma.userActivity.findFirst({
+    // Check if user already read this article (using ReadArticle for permanent duplicate prevention)
+    const existingRead = await prisma.readArticle.findFirst({
       where: {
         userId,
         articleId: id
       }
     });
 
-    if (existingActivity) {
+    if (existingRead) {
       return res.status(400).json({
         success: false,
         error: 'ARTICLE_ALREADY_READ',
@@ -824,15 +824,15 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
         throw new Error('ARTICLE_NOT_FOUND_OR_UNPUBLISHED');
       }
 
-      // Double-check if article already read within transaction
-      const existingActivityInTx = await tx.userActivity.findFirst({
+      // Double-check if article already read within transaction (using ReadArticle)
+      const existingReadInTx = await tx.readArticle.findFirst({
         where: {
           userId,
           articleId: id
         }
       });
 
-      if (existingActivityInTx) {
+      if (existingReadInTx) {
         throw new Error('ARTICLE_ALREADY_READ');
       }
 
@@ -851,6 +851,14 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
         throw new Error('DAILY_ARTICLE_LIMIT_REACHED');
       }
 
+      // Create ReadArticle record for permanent duplicate prevention
+      await tx.readArticle.create({
+        data: {
+          userId,
+          articleId: id
+        }
+      });
+
       // Create user activity and update points atomically using current pointsValue
       const newActivity = await tx.userActivity.create({
         data: {
@@ -861,11 +869,15 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
         }
       });
 
+      // Update user points and count
       await tx.user.update({
         where: { id: userId },
         data: {
           points: {
             increment: articleInTx.pointsValue // Use pointsValue from transaction
+          },
+          totalArticlesReadCount: {
+            increment: 1
           }
         }
       });

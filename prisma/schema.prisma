@@ -39,6 +39,8 @@ model User {
   miningBalance    Float            @default(0) @map("mining_balance")
   pushToken        String?          @map("push_token")
   lastInactiveReminderAt DateTime? @map("last_inactive_reminder_at")
+  totalArticlesReadCount Int         @default(0) @map("total_articles_read_count")
+  totalMiningSessionsCount Int       @default(0) @map("total_mining_sessions_count")
   authoredArticles Article[]        @relation("ArticleAuthor")
   reviewedArticles Article[]        @relation("ArticleReviewer")
   dailyRewards     DailyReward[]
@@ -47,7 +49,9 @@ model User {
   kycSubmissions   KycSubmission[]
   leaderboards     Leaderboard[]
   miningClaims     MiningClaim[]
+  miningClaimSummaries MiningClaimSummary[]
   miningSessions   MiningSession[]
+  readArticles     ReadArticle[]
   refereeRewards   ReferralReward[] @relation("ReferralRewardsAsReferee")
   referralRewards  ReferralReward[] @relation("ReferralRewardsAsReferrer")
   refreshTokens    RefreshToken[]
@@ -96,6 +100,7 @@ model Article {
   author           User?          @relation("ArticleAuthor", fields: [authorId], references: [id])
   reviewer         User?          @relation("ArticleReviewer", fields: [reviewedBy], references: [id])
   activities       UserActivity[]
+  readArticles     ReadArticle[]
 
   // Indexes for performance optimization
   @@index([authorId]) // For queries filtering by author
@@ -239,6 +244,37 @@ model MiningClaim {
   @@index([userId, claimedAt]) // Composite index for user claims sorted by date
   @@index([claimedAt]) // For sorting by claim date
   @@map("mining_claims")
+}
+
+model MiningClaimSummary {
+  id          String   @id @default(cuid()) @db.VarChar
+  userId      String   @map("user_id") @db.VarChar
+  period      String   // "YYYY-MM" format
+  periodType  String   @default("month") @map("period_type")
+  count       Int
+  totalAmount Float    @map("total_amount")
+  startDate   DateTime @map("start_date")
+  endDate     DateTime @map("end_date")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, period, periodType])
+  @@index([userId])
+  @@index([userId, period])
+  @@map("mining_claim_summaries")
+}
+
+model ReadArticle {
+  id        String   @id @default(cuid()) @db.VarChar
+  userId    String   @map("user_id") @db.VarChar
+  articleId String   @map("article_id") @db.VarChar
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, articleId])
+  @@index([userId])
+  @@index([articleId])
+  @@map("read_articles")
 }
 
 model WalletData {

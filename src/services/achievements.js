@@ -11,34 +11,26 @@ const FIRST_MONTH_END = new Date(APP_LAUNCH_DATE.getTime() + (30 * 24 * 60 * 60 
  */
 async function checkBadgeEligibility(userId) {
   try {
-    // Get user's total articles read
-    const totalRead = await prisma.userActivity.count({
-      where: { userId }
-    });
-
-    // Get user's total points and creation date
+    // Get user's total points and creation date (including count fields)
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { 
         points: true, 
         createdAt: true,
         streakCount: true,
-        lastLogin: true
+        lastLogin: true,
+        totalArticlesReadCount: true,
+        totalMiningSessionsCount: true
       }
     });
+
+    // Use stored count fields instead of counting records
+    const totalRead = user?.totalArticlesReadCount || 0;
+    const miningSessionsCount = user?.totalMiningSessionsCount || 0;
 
     // Get user's referral count
     const referralCount = await prisma.user.count({
       where: { referredBy: userId }
-    });
-
-    // Get user's completed mining sessions count
-    const miningSessionsCount = await prisma.miningSession.count({
-      where: {
-        userId,
-        isCompleted: true,
-        isClaimed: true
-      }
     });
 
     // Define all achievement types
