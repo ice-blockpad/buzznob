@@ -185,17 +185,110 @@ class NotificationCronOptimized {
   }
 
   /**
+   * Process users in paginated batches with deduplication
+   * Tracks which users have been processed in this run to prevent duplicates
+   * The date-based lock ensures this only runs once per UTC day
+   */
+  async processUsersInBatchesWithDeduplication(notificationData) {
+    let offset = 0;
+    let totalProcessed = 0;
+    let totalSent = 0;
+    let hasMore = true;
+    
+    // Track which users we've already processed in this run
+    // This prevents duplicate notifications if the same user appears multiple times
+    const processedUserIds = new Set();
+
+    while (hasMore) {
+      try {
+        // Fetch users in pages
+        const users = await prisma.user.findMany({
+          where: {
+            pushToken: { not: null },
+            isActive: true,
+          },
+          select: { 
+            id: true,
+            pushToken: true 
+          },
+          skip: offset,
+          take: this.PAGE_SIZE,
+          orderBy: { id: 'asc' }, // Consistent ordering
+        });
+
+        if (users.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        // Filter out users already processed in this run
+        const usersToNotify = users.filter(u => !processedUserIds.has(u.id));
+        
+        // Mark these users as processed to prevent duplicates within this run
+        usersToNotify.forEach(u => processedUserIds.add(u.id));
+        
+        // Group push tokens into batches of 100
+        const pushTokens = usersToNotify
+          .map(u => u.pushToken)
+          .filter(Boolean);
+
+        // Send notifications in batches with rate limiting
+        if (pushTokens.length > 0) {
+          await this.sendBatchWithRateLimit(
+            [...pushTokens], // Copy array to avoid mutation
+            notificationData
+          );
+          totalSent += pushTokens.length;
+        }
+
+        totalProcessed += users.length;
+        offset += this.PAGE_SIZE;
+        hasMore = users.length === this.PAGE_SIZE;
+
+        console.log(`📊 Processed ${totalProcessed} users, sent ${totalSent} notifications...`);
+
+        // Small delay between pages to avoid overwhelming database
+        if (hasMore) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      } catch (error) {
+        console.error(`Error processing batch at offset ${offset}:`, error);
+        // Continue with next batch
+        offset += this.PAGE_SIZE;
+      }
+    }
+
+    return { totalProcessed, totalSent };
+  }
+
+  /**
    * Optimized daily claim notifications
    * Processes 5M users efficiently using pagination and batching
+   * Includes deduplication to prevent duplicate notifications
    */
   startDailyClaimNotifications() {
     const job = cron.schedule('0 0 * * *', async () => {
+      const now = new Date();
+      const todayUtc = new Date(Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate()
+      ));
+      
+      // Use date-based lock key to ensure only one execution per UTC day
+      // Format: daily_claim_notification_YYYY-MM-DD
+      const dateStr = todayUtc.toISOString().split('T')[0];
+      const lockKey = `daily_claim_notification_${dateStr}`;
+      
       // Use distributed lock to prevent duplicate execution in PM2 cluster mode
       // TTL of 1 hour to ensure lock is held for entire execution
-      await distributedLock.withLock('daily_claim_notification', async () => {
+      const lockResult = await distributedLock.withLock(lockKey, async () => {
         try {
           const startTime = Date.now();
+          
           console.log('🚀 Starting daily claim notifications...');
+          console.log(`📅 UTC Date: ${dateStr}`);
+          console.log(`🔒 Lock key: ${lockKey}`);
 
           // First, get total count for progress tracking
           const totalUsers = await prisma.user.count({
@@ -213,31 +306,45 @@ class NotificationCronOptimized {
             data: { type: 'daily_claim' },
           };
 
-          // Process in paginated batches
-          const totalProcessed = await this.processUsersInBatches(
-            null, // Not using function, using direct notification
-            notification
-          );
+          // Process in paginated batches with deduplication
+          const { totalProcessed, totalSent } = await this.processUsersInBatchesWithDeduplication(notification);
 
           const duration = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
           console.log(`✅ Daily claim notifications complete!`);
-          console.log(`   Processed: ${totalProcessed.toLocaleString()} users`);
+          console.log(`   Total users processed: ${totalProcessed.toLocaleString()}`);
+          console.log(`   Notifications sent: ${totalSent.toLocaleString()}`);
+          console.log(`   Skipped (already notified): ${(totalProcessed - totalSent).toLocaleString()}`);
           console.log(`   Duration: ${duration} minutes`);
-          console.log(`   Rate: ${(totalProcessed / (Date.now() - startTime) * 1000).toFixed(0)} users/second`);
+          if (totalSent > 0) {
+            console.log(`   Rate: ${(totalSent / (Date.now() - startTime) * 1000).toFixed(0)} notifications/second`);
+          }
         } catch (error) {
-          console.error('Error in daily claim notification cron:', error);
+          console.error('❌ Error in daily claim notification cron:', error);
+          console.error('❌ Error stack:', error.stack);
         }
       }, 3600); // 1 hour TTL to ensure lock is held for entire execution
+      
+      // Log if lock was not acquired (another instance is handling it)
+      if (lockResult === null) {
+        console.log(`⏭️  Daily claim notification skipped for ${dateStr} - lock held by another instance`);
+      }
     });
 
     this.jobs.push(job);
-    console.log('✅ Optimized daily claim notification cron job started');
+    console.log('✅ Optimized daily claim notification cron job started (runs at 00:00 UTC daily)');
   }
 
   /**
    * Start all cron jobs
+   * Stops existing jobs first to prevent duplicate registrations
    */
   startAll() {
+    // Stop existing jobs first to prevent duplicates
+    if (this.jobs.length > 0) {
+      console.log(`⚠️  Stopping ${this.jobs.length} existing cron jobs before restarting...`);
+      this.stopAll();
+    }
+    
     this.startMiningCompletionCheck();
     this.startDailyClaimNotifications();
     console.log('✅ All optimized notification cron jobs started');

@@ -82,20 +82,32 @@ class DistributedLock {
    * @returns {Promise<any>} - Result of the function or null if lock not acquired
    */
   async withLock(lockKey, fn, ttlSeconds = 300) {
-    const acquired = await this.acquireLock(lockKey, ttlSeconds);
-    
-    if (!acquired) {
-      console.log(`⏭️  Skipping ${lockKey} - lock held by another instance`);
-      return null;
-    }
-
     try {
-      console.log(`🔒 Lock acquired for ${lockKey} by instance ${this.instanceId.substring(0, 8)}...`);
-      const result = await fn();
-      return result;
-    } finally {
-      await this.releaseLock(lockKey);
-      console.log(`🔓 Lock released for ${lockKey}`);
+      const acquired = await this.acquireLock(lockKey, ttlSeconds);
+      
+      if (!acquired) {
+        console.log(`⏭️  Skipping ${lockKey} - lock held by another instance`);
+        return null;
+      }
+
+      try {
+        console.log(`🔒 Lock acquired for ${lockKey} by instance ${this.instanceId.substring(0, 8)}... (TTL: ${ttlSeconds}s)`);
+        const result = await fn();
+        return result;
+      } catch (error) {
+        console.error(`❌ Error executing locked function for ${lockKey}:`, error);
+        throw error;
+      } finally {
+        try {
+          await this.releaseLock(lockKey);
+          console.log(`🔓 Lock released for ${lockKey}`);
+        } catch (releaseError) {
+          console.error(`❌ Error releasing lock ${lockKey}:`, releaseError);
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Error in withLock for ${lockKey}:`, error);
+      return null;
     }
   }
 }
