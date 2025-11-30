@@ -178,6 +178,9 @@ class NotificationCronOptimized {
           console.error('Error in mining completion check cron:', error);
         }
       }, 300); // 5 minute TTL (matches cron interval)
+    }, {
+      scheduled: false,
+      timezone: 'UTC'
     });
 
     this.jobs.push(job);
@@ -328,6 +331,9 @@ class NotificationCronOptimized {
       if (lockResult === null) {
         console.log(`⏭️  Daily claim notification skipped for ${dateStr} - lock held by another instance`);
       }
+    }, {
+      scheduled: false,
+      timezone: 'UTC'
     });
 
     this.jobs.push(job);

@@ -133,6 +133,9 @@ class MiningCron {
     // Schedule to run every 10 minutes
     const job = cron.schedule('*/10 * * * *', async () => {
       await this.updateMiningRates();
+    }, {
+      scheduled: false,
+      timezone: 'UTC'
     });
 
     this.jobs.push(job);

@@ -220,12 +220,58 @@ async function cleanupMiningClaims() {
 }
 
 /**
- * Run all cleanup operations
+ * Run cleanup operations without aggregation (for daily cleanup)
+ * Aggregation runs separately on monthly schedule
+ * @returns {Promise<Object>} Overall cleanup results
+ */
+async function runCleanupWithoutAggregation() {
+  const startTime = Date.now();
+  console.log('🧹 Starting data cleanup (without aggregation)...');
+
+  const results = {
+    dailyRewards: { deleted: 0, errors: 0 },
+    userActivities: { deleted: 0, errors: 0 },
+    miningSessions: { deleted: 0, errors: 0 },
+    duration: 0
+  };
+
+  try {
+    // 1. Cleanup Daily Rewards
+    console.log('📅 Cleaning up daily rewards...');
+    results.dailyRewards = await cleanupDailyRewards();
+    console.log(`✅ Daily rewards: ${results.dailyRewards.deleted} deleted, ${results.dailyRewards.errors} errors`);
+
+    // 2. Cleanup User Activities
+    console.log('📚 Cleaning up user activities...');
+    results.userActivities = await cleanupUserActivities();
+    console.log(`✅ User activities: ${results.userActivities.deleted} deleted, ${results.userActivities.errors} errors`);
+
+    // 3. Cleanup Mining Sessions
+    console.log('⛏️  Cleaning up mining sessions...');
+    results.miningSessions = await cleanupMiningSessions();
+    console.log(`✅ Mining sessions: ${results.miningSessions.deleted} deleted, ${results.miningSessions.errors} errors`);
+
+    // Note: Mining claims aggregation runs monthly at 00:00 UTC on the 1st
+
+    results.duration = Date.now() - startTime;
+    console.log(`✅ Data cleanup completed in ${(results.duration / 1000).toFixed(2)}s`);
+
+    return results;
+  } catch (error) {
+    console.error('❌ Error in runCleanupWithoutAggregation:', error);
+    results.duration = Date.now() - startTime;
+    throw error;
+  }
+}
+
+/**
+ * Run all cleanup operations (including aggregation)
+ * Used for manual runs or testing
  * @returns {Promise<Object>} Overall cleanup results
  */
 async function runCleanup() {
   const startTime = Date.now();
-  console.log('🧹 Starting data cleanup...');
+  console.log('🧹 Starting full data cleanup (including aggregation)...');
 
   const results = {
     dailyRewards: { deleted: 0, errors: 0 },
@@ -283,6 +329,7 @@ module.exports = {
   cleanupUserActivities,
   cleanupMiningSessions,
   cleanupMiningClaims,
-  runCleanup
+  runCleanup,
+  runCleanupWithoutAggregation
 };
 

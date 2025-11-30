@@ -12,7 +12,7 @@ class DataCleanupCron {
   }
 
   /**
-   * Start daily cleanup cron job
+   * Start daily cleanup cron job (for non-aggregation cleanup)
    * Runs daily at 2:00 AM UTC
    */
   startDailyCleanup() {
@@ -22,7 +22,8 @@ class DataCleanupCron {
       await distributedLock.withLock(lockKey, async () => {
         try {
           console.log('🧹 [CLEANUP CRON] Starting scheduled data cleanup...');
-          const results = await dataCleanup.runCleanup();
+          // Run cleanup but skip aggregation (aggregation runs monthly)
+          const results = await dataCleanup.runCleanupWithoutAggregation();
           console.log('✅ [CLEANUP CRON] Cleanup completed:', results);
         } catch (error) {
           console.error('❌ [CLEANUP CRON] Error in scheduled cleanup:', error);
@@ -38,10 +39,50 @@ class DataCleanupCron {
   }
 
   /**
+   * Start monthly aggregation cron job
+   * Runs on the 1st of each month at 00:00 UTC (same time as daily claim notifications)
+   */
+  startMonthlyAggregation() {
+    const job = cron.schedule('0 0 1 * *', async () => {
+      const now = new Date();
+      const monthYear = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+      const lockKey = `data_aggregation_${monthYear}`;
+      
+      await distributedLock.withLock(lockKey, async () => {
+        try {
+          console.log('💰 [AGGREGATION CRON] Starting monthly aggregation...');
+          // Use current month start as cutoff (aggregate previous complete months)
+          const currentYear = now.getUTCFullYear();
+          const currentMonth = now.getUTCMonth();
+          const currentMonthStart = new Date(Date.UTC(currentYear, currentMonth, 1, 0, 0, 0, 0));
+          
+          const { aggregateAllUsersClaims } = require('./dataAggregation');
+          const aggregationResult = await aggregateAllUsersClaims(currentMonthStart);
+          console.log(`✅ [AGGREGATION CRON] Aggregation completed: ${aggregationResult.summariesCreated} summaries, ${aggregationResult.claimsDeleted} claims deleted`);
+          
+          // Also cleanup claims older than 12 months
+          const { cleanupMiningClaims } = require('./dataCleanup');
+          const cleanupResult = await cleanupMiningClaims();
+          console.log(`✅ [AGGREGATION CRON] Old claims cleanup: ${cleanupResult.deleted} deleted`);
+        } catch (error) {
+          console.error('❌ [AGGREGATION CRON] Error in monthly aggregation:', error);
+        }
+      }, 3600); // 1 hour TTL
+    }, {
+      scheduled: false,
+      timezone: 'UTC'
+    });
+
+    this.jobs.push(job);
+    console.log('✅ Monthly aggregation cron job scheduled (1st of each month at 00:00 UTC)');
+  }
+
+  /**
    * Start all cron jobs
    */
   startAll() {
     this.startDailyCleanup();
+    this.startMonthlyAggregation();
     console.log('✅ All data cleanup cron jobs started');
   }
 
