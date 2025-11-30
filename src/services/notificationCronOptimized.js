@@ -283,6 +283,11 @@ class NotificationCronOptimized {
       const dateStr = todayUtc.toISOString().split('T')[0];
       const lockKey = `daily_claim_notification_${dateStr}`;
       
+      // Log the actual execution time for debugging
+      const executionTime = new Date().toISOString();
+      const executionTimeUTC = new Date().toUTCString();
+      console.log(`⏰ [TIMEZONE DEBUG] Cron executed at: ${executionTime} (${executionTimeUTC})`);
+      
       // Use distributed lock to prevent duplicate execution in PM2 cluster mode
       // TTL of 1 hour to ensure lock is held for entire execution
       const lockResult = await distributedLock.withLock(lockKey, async () => {
@@ -292,6 +297,7 @@ class NotificationCronOptimized {
           console.log('🚀 Starting daily claim notifications...');
           console.log(`📅 UTC Date: ${dateStr}`);
           console.log(`🔒 Lock key: ${lockKey}`);
+          console.log(`⏰ Execution time (UTC): ${new Date().toUTCString()}`);
 
           // First, get total count for progress tracking
           const totalUsers = await prisma.user.count({
@@ -338,6 +344,8 @@ class NotificationCronOptimized {
 
     this.jobs.push(job);
     console.log('✅ Optimized daily claim notification cron job started (runs at 00:00 UTC daily)');
+    console.log(`⏰ Server timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
+    console.log(`⏰ Current server time (UTC): ${new Date().toUTCString()}`);
   }
 
   /**
