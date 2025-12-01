@@ -101,7 +101,7 @@ router.get('/user-by-code', async (req, res) => {
 
     const cacheKey = `referral:user-by-code:${code.toUpperCase()}`;
 
-    // Write-through cache: Get from cache or fetch and cache (1 hour TTL)
+    // Write-through cache: Get from cache or fetch and cache (10 minutes TTL)
     const userData = await cacheService.getOrSet(cacheKey, async () => {
       const user = await prisma.user.findUnique({
         where: { 
@@ -124,7 +124,7 @@ router.get('/user-by-code', async (req, res) => {
         displayName: user.displayName || user.firstName || user.username || null,
         referralCode: user.referralCode
       };
-    }, 3600); // 1 hour TTL
+    }, 600); // 10 minutes TTL
 
     if (!userData) {
       return res.status(404).json({
@@ -155,7 +155,7 @@ router.get('/my-code', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const cacheKey = `referral:code:${userId}`;
 
-    // Write-through cache: Get from cache or fetch and cache (1 hour TTL)
+    // Write-through cache: Get from cache or fetch and cache (10 minutes TTL)
     const referralCode = await cacheService.getOrSet(cacheKey, async () => {
       const user = await prisma.user.findUnique({
         where: { id: userId },
@@ -167,7 +167,7 @@ router.get('/my-code', authenticateToken, async (req, res) => {
       }
 
       return user.referralCode;
-    }, 3600); // 1 hour TTL
+    }, 600); // 10 minutes TTL
 
     if (!referralCode) {
       return res.status(404).json({
@@ -199,7 +199,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const cacheKey = `referral:stats:${userId}`;
 
-    // Write-through cache: Get from cache or fetch and cache (1 hour TTL)
+    // Write-through cache: Get from cache or fetch and cache (10 minutes TTL)
     const stats = await cacheService.getOrSet(cacheKey, async () => {
       // Single optimized query to get all referral data
       const result = await prisma.$queryRaw`
@@ -274,7 +274,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
         activeCount: parseInt(data.active_count) || 0,
         inactiveCount: parseInt(data.inactive_count) || 0
       };
-    }, 3600); // 1 hour TTL
+    }, 600); // 10 minutes TTL
 
     res.json({
       success: true,
@@ -297,7 +297,7 @@ router.get('/history', authenticateToken, async (req, res) => {
     const pagination = parsePaginationParams(req, { defaultLimit: 20, maxLimit: 100 });
     const cacheKey = `referral:history:${userId}:${pagination.cursor || pagination.offset || 'initial'}:${pagination.limit}`;
 
-    // Write-through cache: Get from cache or fetch and cache (1 hour TTL)
+    // Write-through cache: Get from cache or fetch and cache (10 minutes TTL)
     const historyData = await cacheService.getOrSet(cacheKey, async () => {
       // Use cursor-based pagination if cursor provided, otherwise use offset
       let referrals;
@@ -401,7 +401,7 @@ router.get('/history', authenticateToken, async (req, res) => {
         inactiveCount,
         ...paginationResponse
       };
-    }, 3600); // 1 hour TTL
+    }, 600); // 10 minutes TTL
 
     res.json({
       success: true,
