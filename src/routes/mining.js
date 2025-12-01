@@ -294,11 +294,15 @@ router.get('/stats', authenticateToken, async (req, res) => {
       }
 
       // Simple queries - just fetch what we need
-      const [user, activeSession, completedUnclaimedSession, referrals, completedSessionsCount] = await Promise.all([
-        // Get user points and mining balance
+      const [user, activeSession, completedUnclaimedSession, referrals] = await Promise.all([
+        // Get user points, mining balance, and total mining sessions count
         prisma.user.findUnique({
           where: { id: userId },
-          select: { points: true, miningBalance: true }
+          select: { 
+            points: true, 
+            miningBalance: true,
+            totalMiningSessionsCount: true
+          }
         }),
         
         // Get active mining session (only if it hasn't expired based on endsAt)
@@ -326,16 +330,11 @@ router.get('/stats', authenticateToken, async (req, res) => {
         // Get referral count
         prisma.user.count({
           where: { referredBy: userId }
-        }),
-        
-        // Get completed sessions count
-        prisma.miningSession.count({
-          where: {
-            userId,
-            isCompleted: true
-          }
         })
       ]);
+      
+      // Use totalMiningSessionsCount from user record (includes aggregated counts)
+      const completedSessionsCount = user?.totalMiningSessionsCount || 0;
 
       // Get total earned from user's mining balance
       const totalEarned = user?.miningBalance || 0;
@@ -733,7 +732,7 @@ router.get('/history', authenticateToken, async (req, res) => {
     // Use data aggregation service to get mixed individual + summary records
     const { getAggregatedHistory } = require('../services/dataAggregation');
     const result = await getAggregatedHistory(
-      userId,
+        userId,
       pagination.limit,
       pagination.cursor || null
     );

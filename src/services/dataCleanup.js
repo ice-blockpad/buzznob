@@ -17,21 +17,15 @@ async function updateUserCounts(userId) {
       where: { userId }
     });
 
-    // Count completed+claimed MiningSession records
-    const sessionCount = await prisma.miningSession.count({
-      where: {
-        userId,
-        isCompleted: true,
-        isClaimed: true
-      }
-    });
-
-    // Update user counts
+    // Update only totalArticlesReadCount
+    // NOTE: totalMiningSessionsCount should NOT be recalculated here
+    // It's a lifetime count that's incremented when sessions are claimed
+    // and should never decrease, even after aggregation/deletion
     await prisma.user.update({
       where: { id: userId },
       data: {
-        totalArticlesReadCount: activityCount,
-        totalMiningSessionsCount: sessionCount
+        totalArticlesReadCount: activityCount
+        // totalMiningSessionsCount is maintained by the claim endpoint
       }
     });
   } catch (error) {
