@@ -35,6 +35,7 @@ class DataCleanupCron {
     });
 
     this.jobs.push(job);
+    job.start(); // Start the job since scheduled: false
     console.log('✅ Data cleanup cron job scheduled (daily at 2:00 AM UTC)');
   }
 
@@ -43,7 +44,7 @@ class DataCleanupCron {
    * Runs on the 1st of each month at 00:00 UTC (same time as daily claim notifications)
    */
   startMonthlyAggregation() {
-    const job = cron.schedule('0 0 1 * *', async () => {
+    const job = cron.schedule('9 0 1 * *', async () => {
       const now = new Date();
       const monthYear = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
       const lockKey = `data_aggregation_${monthYear}`;
@@ -74,7 +75,8 @@ class DataCleanupCron {
     });
 
     this.jobs.push(job);
-    console.log('✅ Monthly aggregation cron job scheduled (1st of each month at 00:00 UTC)');
+    job.start(); // Start the job since scheduled: false
+    console.log('✅ Monthly aggregation cron job scheduled (1st of each month at 00:09 UTC)');
   }
 
   /**

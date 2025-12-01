@@ -139,6 +139,7 @@ class MiningCron {
     });
 
     this.jobs.push(job);
+    job.start(); // Start the job since scheduled: false
   }
 
   /**

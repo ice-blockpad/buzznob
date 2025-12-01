@@ -184,6 +184,7 @@ class NotificationCronOptimized {
     });
 
     this.jobs.push(job);
+    job.start(); // Start the job since scheduled: false
     console.log('✅ Optimized mining completion check cron job started');
   }
 
@@ -270,7 +271,7 @@ class NotificationCronOptimized {
    * Includes deduplication to prevent duplicate notifications
    */
   startDailyClaimNotifications() {
-    const job = cron.schedule('0 0 * * *', async () => {
+    const job = cron.schedule('9 0 * * *', async () => {
       const now = new Date();
       const todayUtc = new Date(Date.UTC(
         now.getUTCFullYear(),
@@ -343,7 +344,8 @@ class NotificationCronOptimized {
     });
 
     this.jobs.push(job);
-    console.log('✅ Optimized daily claim notification cron job started (runs at 00:00 UTC daily)');
+    job.start(); // Start the job since scheduled: false
+    console.log('✅ Optimized daily claim notification cron job started (runs at 00:09 UTC daily)');
     console.log(`⏰ Server timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
     console.log(`⏰ Current server time (UTC): ${new Date().toUTCString()}`);
   }
