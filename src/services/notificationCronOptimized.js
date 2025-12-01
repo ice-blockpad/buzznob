@@ -271,7 +271,7 @@ class NotificationCronOptimized {
    * Includes deduplication to prevent duplicate notifications
    */
   startDailyClaimNotifications() {
-    const job = cron.schedule('22 0 * * *', async () => {
+    const job = cron.schedule('0 0 * * *', async () => {
       const now = new Date();
       const todayUtc = new Date(Date.UTC(
         now.getUTCFullYear(),
@@ -291,8 +291,9 @@ class NotificationCronOptimized {
       
       // Use distributed lock to prevent duplicate execution in PM2 cluster mode
       // Check if lock already exists (notifications already sent today)
-      // TTL of 24 hours to prevent duplicate runs for the entire day
-      const lockAcquired = await distributedLock.acquireLock(lockKey, 86400); // 24 hours TTL
+      // TTL of 1 hour is sufficient - all instances will attempt within seconds/minutes
+      // After 1 hour, lock expires but cron won't run again until next day anyway
+      const lockAcquired = await distributedLock.acquireLock(lockKey, 3600); // 1 hour TTL
       
       if (!lockAcquired) {
         console.log(`⏭️  Daily claim notifications already sent for ${dateStr} - skipping`);
@@ -300,8 +301,9 @@ class NotificationCronOptimized {
       }
 
       // Lock acquired - send notifications
-      // Don't release lock immediately - let it expire after 24 hours to prevent duplicates
-      console.log(`🔒 Lock acquired for ${lockKey} (TTL: 24 hours)`);
+      // Don't release lock immediately - let it expire after 1 hour to prevent duplicates
+      // This is sufficient since all instances will attempt within seconds/minutes
+      console.log(`🔒 Lock acquired for ${lockKey} (TTL: 1 hour)`);
       try {
         const startTime = Date.now();
         
@@ -338,7 +340,7 @@ class NotificationCronOptimized {
         if (totalSent > 0) {
           console.log(`   Rate: ${(totalSent / (Date.now() - startTime) * 1000).toFixed(0)} notifications/second`);
         }
-        console.log(`🔒 Lock will expire automatically after 24 hours to prevent duplicate runs`);
+        console.log(`🔒 Lock will expire automatically after 1 hour (sufficient to prevent duplicate runs)`);
       } catch (error) {
         console.error('❌ Error in daily claim notification cron:', error);
         console.error('❌ Error stack:', error.stack);
@@ -352,7 +354,7 @@ class NotificationCronOptimized {
 
     this.jobs.push(job);
     job.start(); // Start the job since scheduled: false
-    console.log('✅ Optimized daily claim notification cron job started (runs at 00:12 UTC daily)');
+    console.log('✅ Optimized daily claim notification cron job started (runs at 00:00 UTC daily)');
     console.log(`⏰ Server timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
     console.log(`⏰ Current server time (UTC): ${new Date().toUTCString()}`);
   }
