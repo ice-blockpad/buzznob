@@ -142,8 +142,53 @@ router.put('/profile', authenticateToken, async (req, res) => {
     // This ensures cache is updated before response is sent
     try {
       await cacheService.refreshUserProfile(req.user.id, profileData);
-      // Invalidate public profile cache (profile data changed)
-      await cacheService.delete(`public:profile:${req.user.id}`);
+      // Write-through: Refresh public profile cache with fresh data
+      await cacheService.refreshPublicProfile(req.user.id, async () => {
+        const user = await prisma.user.findUnique({
+          where: { id: req.user.id },
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            bio: true,
+            avatarUrl: true,
+            avatarData: true,
+            avatarType: true,
+            role: true,
+            points: true,
+            createdAt: true,
+            _count: {
+              select: {
+                followers: true,
+                following: true,
+                authoredArticles: {
+                  where: { status: 'published' }
+                }
+              }
+            }
+          }
+        });
+
+        if (!user) {
+          return null;
+        }
+
+        return {
+          id: user.id,
+          username: user.username,
+          displayName: user.displayName,
+          bio: user.bio,
+          avatarUrl: user.avatarUrl,
+          avatarData: user.avatarData,
+          avatarType: user.avatarType,
+          role: user.role,
+          points: user.points,
+          followersCount: user._count.followers,
+          followingCount: user._count.following,
+          articlesCount: user._count.authoredArticles,
+          createdAt: user.createdAt
+        };
+      });
       // Invalidate creators list cache if user is creator/admin (profile data changed)
       if (updatedUser.role === 'creator' || updatedUser.role === 'admin') {
         await cacheService.deletePattern('creators:list:*');
@@ -270,8 +315,53 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
     // This ensures cache is updated before response is sent
     try {
       await cacheService.refreshUserProfile(req.user.id, profileData);
-      // Invalidate public profile cache (profile data changed)
-      await cacheService.delete(`public:profile:${req.user.id}`);
+      // Write-through: Refresh public profile cache with fresh data
+      await cacheService.refreshPublicProfile(req.user.id, async () => {
+        const user = await prisma.user.findUnique({
+          where: { id: req.user.id },
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            bio: true,
+            avatarUrl: true,
+            avatarData: true,
+            avatarType: true,
+            role: true,
+            points: true,
+            createdAt: true,
+            _count: {
+              select: {
+                followers: true,
+                following: true,
+                authoredArticles: {
+                  where: { status: 'published' }
+                }
+              }
+            }
+          }
+        });
+
+        if (!user) {
+          return null;
+        }
+
+        return {
+          id: user.id,
+          username: user.username,
+          displayName: user.displayName,
+          bio: user.bio,
+          avatarUrl: user.avatarUrl,
+          avatarData: user.avatarData,
+          avatarType: user.avatarType,
+          role: user.role,
+          points: user.points,
+          followersCount: user._count.followers,
+          followingCount: user._count.following,
+          articlesCount: user._count.authoredArticles,
+          createdAt: user.createdAt
+        };
+      });
       // Invalidate creators list cache if user is creator/admin (avatar/profile data changed)
       if (updatedUser.role === 'creator' || updatedUser.role === 'admin') {
         await cacheService.deletePattern('creators:list:*');
@@ -981,7 +1071,7 @@ router.get('/:userId/public-profile', authenticateToken, async (req, res) => {
         articlesCount: user._count.authoredArticles,
         createdAt: user.createdAt
       };
-    }, 3600); // 1 hour TTL (write-through cache with safety net)
+    }, 600); // 10 minutes TTL (write-through cache with safety net)
 
     // Check if current user is following this user (user-specific, not cached)
     const isFollowing = await prisma.follow.findUnique({

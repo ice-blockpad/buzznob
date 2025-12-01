@@ -180,6 +180,28 @@ class CacheService {
   }
 
   /**
+   * Write-through: Refresh public profile cache when profile data changes
+   * @param {string} userId - User ID
+   * @param {Function} fetchPublicProfileFn - Function to fetch fresh public profile from DB
+   * @returns {Promise<void>}
+   */
+  async refreshPublicProfile(userId, fetchPublicProfileFn) {
+    try {
+      const cacheKey = `public:profile:${userId}`;
+      // Write-through: Update cache with fresh public profile data
+      const data = await fetchPublicProfileFn();
+      if (data !== null && data !== undefined) {
+        await this.set(cacheKey, data, 600); // 10 minutes TTL
+      }
+      console.log(`✅ Refreshed public profile cache for user ${userId} (write-through)`);
+    } catch (error) {
+      console.error(`Error refreshing public profile cache for ${userId}:`, error);
+      // Fallback: Delete cache if refresh fails to force fresh fetch on next request
+      await this.delete(`public:profile:${userId}`);
+    }
+  }
+
+  /**
    * Write-through: Refresh all leaderboard caches when points change
    * @param {Function} fetchWeeklyFn - Function to fetch weekly leaderboard
    * @param {Function} fetchMonthlyFn - Function to fetch monthly leaderboard
