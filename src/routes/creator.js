@@ -224,7 +224,7 @@ router.get('/articles', authenticateToken, requireCreator, async (req, res) => {
         articles: paginationResponse.data,
         ...paginationResponse
       };
-    }, 3600); // 1 hour TTL (write-through cache with safety net)
+    }, 600); // 10 minutes TTL (write-through cache with safety net)
 
     res.json({
       success: true,

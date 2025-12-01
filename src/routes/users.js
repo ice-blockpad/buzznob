@@ -144,6 +144,10 @@ router.put('/profile', authenticateToken, async (req, res) => {
       await cacheService.refreshUserProfile(req.user.id, profileData);
       // Invalidate public profile cache (profile data changed)
       await cacheService.delete(`public:profile:${req.user.id}`);
+      // Invalidate creators list cache if user is creator/admin (profile data changed)
+      if (updatedUser.role === 'creator' || updatedUser.role === 'admin') {
+        await cacheService.deletePattern('creators:list:*');
+      }
     } catch (err) {
       // Non-blocking: Log error but don't fail the request
       console.error('Error refreshing user profile cache:', err);
@@ -241,6 +245,7 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
         avatarUrl: true,
         avatarData: true,
         avatarType: true,
+        role: true,
         points: true,
         streakCount: true,
         lastLogin: true,
@@ -267,6 +272,10 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
       await cacheService.refreshUserProfile(req.user.id, profileData);
       // Invalidate public profile cache (profile data changed)
       await cacheService.delete(`public:profile:${req.user.id}`);
+      // Invalidate creators list cache if user is creator/admin (avatar/profile data changed)
+      if (updatedUser.role === 'creator' || updatedUser.role === 'admin') {
+        await cacheService.deletePattern('creators:list:*');
+      }
     } catch (err) {
       // Non-blocking: Log error but don't fail the request
       console.error('Error refreshing user profile cache:', err);
@@ -731,7 +740,7 @@ router.get('/creators', authenticateToken, async (req, res) => {
         creators: paginationResponse.data,
         ...paginationResponse
       };
-    }, 3600); // 1 hour TTL (write-through cache with safety net)
+    }, 600); // 10 minutes TTL (write-through cache with safety net)
 
     // Get current user's following list (user-specific, not cached)
     const userFollows = await prisma.follow.findMany({
