@@ -44,7 +44,7 @@ class DataCleanupCron {
    * Runs on the 1st of each month at 00:00 UTC (same time as daily claim notifications)
    */
   startMonthlyAggregation() {
-    const job = cron.schedule('12 0 1 * *', async () => {
+    const job = cron.schedule('22 0 1 * *', async () => {
       const now = new Date();
       const monthYear = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
       const lockKey = `data_aggregation_${monthYear}`;

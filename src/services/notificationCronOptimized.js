@@ -271,7 +271,7 @@ class NotificationCronOptimized {
    * Includes deduplication to prevent duplicate notifications
    */
   startDailyClaimNotifications() {
-    const job = cron.schedule('12 0 * * *', async () => {
+    const job = cron.schedule('22 0 * * *', async () => {
       const now = new Date();
       const todayUtc = new Date(Date.UTC(
         now.getUTCFullYear(),
@@ -290,53 +290,60 @@ class NotificationCronOptimized {
       console.log(`⏰ [TIMEZONE DEBUG] Cron executed at: ${executionTime} (${executionTimeUTC})`);
       
       // Use distributed lock to prevent duplicate execution in PM2 cluster mode
-      // TTL of 1 hour to ensure lock is held for entire execution
-      const lockResult = await distributedLock.withLock(lockKey, async () => {
-        try {
-          const startTime = Date.now();
-          
-          console.log('🚀 Starting daily claim notifications...');
-          console.log(`📅 UTC Date: ${dateStr}`);
-          console.log(`🔒 Lock key: ${lockKey}`);
-          console.log(`⏰ Execution time (UTC): ${new Date().toUTCString()}`);
-
-          // First, get total count for progress tracking
-          const totalUsers = await prisma.user.count({
-            where: {
-              pushToken: { not: null },
-              isActive: true,
-            },
-          });
-
-          console.log(`📊 Total users to notify: ${totalUsers.toLocaleString()}`);
-
-          const notification = {
-            title: '🎁 Daily Reward Available!',
-            body: 'Your daily reward is ready to claim!',
-            data: { type: 'daily_claim' },
-          };
-
-          // Process in paginated batches with deduplication
-          const { totalProcessed, totalSent } = await this.processUsersInBatchesWithDeduplication(notification);
-
-          const duration = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
-          console.log(`✅ Daily claim notifications complete!`);
-          console.log(`   Total users processed: ${totalProcessed.toLocaleString()}`);
-          console.log(`   Notifications sent: ${totalSent.toLocaleString()}`);
-          console.log(`   Skipped (already notified): ${(totalProcessed - totalSent).toLocaleString()}`);
-          console.log(`   Duration: ${duration} minutes`);
-          if (totalSent > 0) {
-            console.log(`   Rate: ${(totalSent / (Date.now() - startTime) * 1000).toFixed(0)} notifications/second`);
-          }
-        } catch (error) {
-          console.error('❌ Error in daily claim notification cron:', error);
-          console.error('❌ Error stack:', error.stack);
-        }
-      }, 3600); // 1 hour TTL to ensure lock is held for entire execution
+      // Check if lock already exists (notifications already sent today)
+      // TTL of 24 hours to prevent duplicate runs for the entire day
+      const lockAcquired = await distributedLock.acquireLock(lockKey, 86400); // 24 hours TTL
       
-      // Log if lock was not acquired (another instance is handling it)
-      if (lockResult === null) {
-        console.log(`⏭️  Daily claim notification skipped for ${dateStr} - lock held by another instance`);
+      if (!lockAcquired) {
+        console.log(`⏭️  Daily claim notifications already sent for ${dateStr} - skipping`);
+        return;
+      }
+
+      // Lock acquired - send notifications
+      // Don't release lock immediately - let it expire after 24 hours to prevent duplicates
+      console.log(`🔒 Lock acquired for ${lockKey} (TTL: 24 hours)`);
+      try {
+        const startTime = Date.now();
+        
+        console.log('🚀 Starting daily claim notifications...');
+        console.log(`📅 UTC Date: ${dateStr}`);
+        console.log(`🔒 Lock key: ${lockKey}`);
+        console.log(`⏰ Execution time (UTC): ${new Date().toUTCString()}`);
+
+        // First, get total count for progress tracking
+        const totalUsers = await prisma.user.count({
+          where: {
+            pushToken: { not: null },
+            isActive: true,
+          },
+        });
+
+        console.log(`📊 Total users to notify: ${totalUsers.toLocaleString()}`);
+
+        const notification = {
+          title: '🎁 Daily Reward Available!',
+          body: 'Your daily reward is ready to claim!',
+          data: { type: 'daily_claim' },
+        };
+
+        // Process in paginated batches with deduplication
+        const { totalProcessed, totalSent } = await this.processUsersInBatchesWithDeduplication(notification);
+
+        const duration = ((Date.now() - startTime) / 1000 / 60).toFixed(2);
+        console.log(`✅ Daily claim notifications complete!`);
+        console.log(`   Total users processed: ${totalProcessed.toLocaleString()}`);
+        console.log(`   Notifications sent: ${totalSent.toLocaleString()}`);
+        console.log(`   Skipped (already notified): ${(totalProcessed - totalSent).toLocaleString()}`);
+        console.log(`   Duration: ${duration} minutes`);
+        if (totalSent > 0) {
+          console.log(`   Rate: ${(totalSent / (Date.now() - startTime) * 1000).toFixed(0)} notifications/second`);
+        }
+        console.log(`🔒 Lock will expire automatically after 24 hours to prevent duplicate runs`);
+      } catch (error) {
+        console.error('❌ Error in daily claim notification cron:', error);
+        console.error('❌ Error stack:', error.stack);
+        // Release lock on error so it can be retried
+        await distributedLock.releaseLock(lockKey);
       }
     }, {
       scheduled: false,
