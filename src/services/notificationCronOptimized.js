@@ -271,7 +271,7 @@ class NotificationCronOptimized {
    * Includes deduplication to prevent duplicate notifications
    */
   startDailyClaimNotifications() {
-    const job = cron.schedule('9 0 * * *', async () => {
+    const job = cron.schedule('12 0 * * *', async () => {
       const now = new Date();
       const todayUtc = new Date(Date.UTC(
         now.getUTCFullYear(),
@@ -345,7 +345,7 @@ class NotificationCronOptimized {
 
     this.jobs.push(job);
     job.start(); // Start the job since scheduled: false
-    console.log('✅ Optimized daily claim notification cron job started (runs at 00:09 UTC daily)');
+    console.log('✅ Optimized daily claim notification cron job started (runs at 00:12 UTC daily)');
     console.log(`⏰ Server timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
     console.log(`⏰ Current server time (UTC): ${new Date().toUTCString()}`);
   }
