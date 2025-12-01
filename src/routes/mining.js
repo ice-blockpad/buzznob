@@ -456,27 +456,18 @@ router.post('/start', authenticateToken, async (req, res) => {
       await updateMiningProgress(s.id);
     }
     
-    // Check if mining is already active (after cleanup)
-    const activeSession = await prisma.miningSession.findFirst({
-      where: { 
-        userId,
-        isActive: true
-      },
-      orderBy: { startedAt: 'desc' }
-    });
-    
-    if (activeSession) {
-        return res.status(400).json({
-          success: false,
-        message: 'Mining is already active. Please wait for the current session to complete.'
-      });
-    }
-    
     // Calculate initial mining rate based on active referrals
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: { referrals: true }
     });
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
     
     let activeReferrals = 0;
     if (user.referrals && user.referrals.length > 0) {
@@ -506,18 +497,36 @@ router.post('/start', authenticateToken, async (req, res) => {
     const duration = 21600; // 6 hours in seconds (from schema default)
     const endsAt = new Date(now.getTime() + duration * 1000); // Calculate end time
     
-    const miningSession = await prisma.miningSession.create({
-      data: {
-        userId,
-        baseReward,
-        currentRate: initialRate,
-        totalMined: 0,
-        lastUpdate: now,
-        startedAt: now,
-        endsAt: endsAt,
-        duration: duration,
-        isActive: true
+    // SECURITY FIX: Use transaction to atomically check and create mining session
+    // This prevents race conditions where multiple simultaneous requests could start mining
+    const miningSession = await prisma.$transaction(async (tx) => {
+      // Check if mining is already active (inside transaction to prevent race conditions)
+      const activeSession = await tx.miningSession.findFirst({
+        where: { 
+          userId,
+          isActive: true
+        },
+        orderBy: { startedAt: 'desc' }
+      });
+      
+      if (activeSession) {
+        throw new Error('MINING_ALREADY_ACTIVE');
       }
+      
+      // Create new mining session atomically
+      return await tx.miningSession.create({
+        data: {
+          userId,
+          baseReward,
+          currentRate: initialRate,
+          totalMined: 0,
+          lastUpdate: now,
+          startedAt: now,
+          endsAt: endsAt,
+          duration: duration,
+          isActive: true
+        }
+      });
     });
 
     // Update mining rates for all users who referred this user
@@ -534,6 +543,15 @@ router.post('/start', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Error starting mining:', error);
+    
+    // Handle specific error for already active mining
+    if (error.message === 'MINING_ALREADY_ACTIVE') {
+      return res.status(400).json({
+        success: false,
+        message: 'Mining is already active. Please wait for the current session to complete.'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to start mining'
@@ -545,28 +563,6 @@ router.post('/start', authenticateToken, async (req, res) => {
 router.post('/claim', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    
-    // Find completed mining session that hasn't been claimed yet
-    const completedSession = await prisma.miningSession.findFirst({
-      where: { 
-        userId,
-        isCompleted: true,
-        isClaimed: false
-      },
-      orderBy: { startedAt: 'desc' }
-    });
-
-    if (!completedSession) {
-      return res.status(400).json({
-        success: false,
-        message: 'No completed mining session found. Please start mining first.'
-      });
-    }
-
-    // Calculate final mined amount - round to 4 decimal places for both
-    const finalMinedAmount = parseFloat(completedSession.totalMined.toFixed(4));
-    const pointsToAdd = finalMinedAmount; // Both get the same rounded amount
-
     const claimTime = new Date(); // Use claim time as start time for next session
     const duration = 21600; // 6 hours in seconds
     const endsAt = new Date(claimTime.getTime() + duration * 1000);
@@ -609,7 +605,26 @@ router.post('/claim', authenticateToken, async (req, res) => {
     const initialRate = baseReward + (baseReward * referralBonus / 100);
 
     // Mark session as claimed, claim rewards, and start next session atomically
+    // SECURITY FIX: Check for unclaimed session INSIDE transaction to prevent race conditions
     const result = await prisma.$transaction(async (tx) => {
+      // Find completed mining session that hasn't been claimed yet (inside transaction)
+      const completedSession = await tx.miningSession.findFirst({
+        where: { 
+          userId,
+          isCompleted: true,
+          isClaimed: false
+        },
+        orderBy: { startedAt: 'desc' }
+      });
+
+      if (!completedSession) {
+        throw new Error('NO_COMPLETED_SESSION');
+      }
+
+      // Calculate final mined amount - round to 4 decimal places for both
+      const finalMinedAmount = parseFloat(completedSession.totalMined.toFixed(4));
+      const pointsToAdd = finalMinedAmount; // Both get the same rounded amount
+
       // Mark session as claimed
       await tx.miningSession.update({
         where: { id: completedSession.id },
@@ -667,7 +682,8 @@ router.post('/claim', authenticateToken, async (req, res) => {
 
       return { 
         session: nextSession,
-        totalPoints: updatedUser?.points || 0
+        totalPoints: updatedUser?.points || 0,
+        finalMinedAmount
       };
     });
 
@@ -703,9 +719,9 @@ router.post('/claim', authenticateToken, async (req, res) => {
     res.json({
       success: true,
       data: {
-        amount: finalMinedAmount,
+        amount: result.finalMinedAmount,
         totalPoints: result.totalPoints,
-        message: `Successfully claimed ${finalMinedAmount} $BUZZ tokens!`,
+        message: `Successfully claimed ${result.finalMinedAmount} $BUZZ tokens!`,
         nextSession: {
           sessionId: result.session.id,
           startedAt: result.session.startedAt,
@@ -716,6 +732,15 @@ router.post('/claim', authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Error claiming mining rewards:', error);
+    
+    // Handle specific error for no completed session
+    if (error.message === 'NO_COMPLETED_SESSION') {
+      return res.status(400).json({
+        success: false,
+        message: 'No completed mining session found. Please start mining first.'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Failed to claim mining rewards'
