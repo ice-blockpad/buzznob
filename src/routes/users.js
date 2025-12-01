@@ -335,6 +335,7 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
         points: true,
         streakCount: true,
         lastLogin: true,
+        lastAvatarUpload: true,
         createdAt: true,
         updatedAt: true
       }
