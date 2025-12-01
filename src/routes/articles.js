@@ -82,7 +82,7 @@ router.get('/trending', optionalAuth, async (req, res) => {
           readCount
         };
       });
-    }, 3600); // 1 hour TTL (write-through cache with safety net)
+    }, 600); // 10 minutes TTL (write-through cache with safety net)
 
     res.json({
       success: true,
@@ -173,7 +173,7 @@ router.get('/featured', optionalAuth, async (req, res) => {
           readCount
         };
       });
-    }, 3600); // 1 hour TTL (write-through cache with safety net)
+    }, 600); // 10 minutes TTL (write-through cache with safety net)
 
     const paginationResponse = buildPaginationResponse(articlesWithReadCount, pagination, 'id');
 
@@ -901,7 +901,7 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
         select: { manualReadCount: true }
       });
       const actualCount = articleData?.manualReadCount !== null ? articleData.manualReadCount : readCount;
-      await cacheService.writeThroughReadCount(id, async () => actualCount, 3600); // 1 hour TTL
+      await cacheService.writeThroughReadCount(id, async () => actualCount, 600); // 10 minutes TTL
       
       // Refresh user profile cache (points changed)
       // Leaderboard will update automatically every 10 minutes

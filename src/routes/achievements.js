@@ -15,7 +15,7 @@ router.get('/my-achievements', authenticateToken, async (req, res) => {
     // Write-through cache: Get from cache, or fetch from DB and cache
     const achievements = await cacheService.getOrSet(cacheKey, async () => {
       return await achievementsService.getUserAchievements(userId);
-    }, 3600); // 1 hour TTL (write-through cache with safety net)
+    }, 600); // 10 minutes TTL (write-through cache with safety net)
 
     res.json({
       success: true,
@@ -63,7 +63,7 @@ router.get('/badges', authenticateToken, async (req, res) => {
       return await prisma.badge.findMany({
         orderBy: { pointsRequired: 'asc' }
       });
-    }, 3600); // 1 hour TTL (write-through cache with safety net)
+    }, 600); // 10 minutes TTL (write-through cache with safety net)
 
     res.json({
       success: true,

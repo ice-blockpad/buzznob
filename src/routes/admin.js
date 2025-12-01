@@ -399,7 +399,7 @@ router.get('/users/:userId/achievements', authenticateToken, requireAdmin, async
           earnedAt: 'desc'
         }
       });
-    }, 3600); // 1 hour TTL (write-through cache with safety net)
+    }, 600); // 10 minutes TTL (write-through cache with safety net)
 
     res.json({
       success: true,
@@ -1295,7 +1295,7 @@ router.patch('/articles/:id/read-count', authenticateToken, requireAdmin, async 
 
     // Write-through cache: Refresh read count and article caches SYNCHRONOUSLY
     try {
-      await cacheService.refreshReadCount(id, async () => readCount, 3600); // 1 hour TTL
+      await cacheService.refreshReadCount(id, async () => readCount, 600); // 10 minutes TTL
       if (article.status === 'published') {
         await cacheService.refreshArticleCaches(
           fetchTrendingArticles,
@@ -1341,7 +1341,7 @@ router.patch('/articles/:id/read-count/reset', authenticateToken, requireAdmin, 
 
     // Write-through cache: Refresh read count and article caches SYNCHRONOUSLY
     try {
-      await cacheService.refreshReadCount(id, async () => actualCount, 3600); // 1 hour TTL
+      await cacheService.refreshReadCount(id, async () => actualCount, 600); // 10 minutes TTL
       if (article.status === 'published') {
         await cacheService.refreshArticleCaches(
           fetchTrendingArticles,

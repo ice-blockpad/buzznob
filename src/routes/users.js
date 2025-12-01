@@ -219,6 +219,44 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
   try {
     const { displayName, bio, avatarUrl, avatarData, avatarType, avatarName } = req.body;
 
+    // Check if user is trying to upload an avatar
+    const isUploadingAvatar = avatarUrl || avatarData;
+    
+    // If uploading avatar, check 7-day cooldown
+    if (isUploadingAvatar) {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user.id },
+        select: { lastAvatarUpload: true }
+      });
+
+      if (user?.lastAvatarUpload) {
+        const now = new Date();
+        const lastUpload = new Date(user.lastAvatarUpload);
+        const daysSinceUpload = (now - lastUpload) / (1000 * 60 * 60 * 24); // Convert to days
+        
+        if (daysSinceUpload < 7) {
+          const remainingDays = Math.ceil(7 - daysSinceUpload);
+          const hoursRemaining = Math.ceil((7 - daysSinceUpload) * 24);
+          
+          // Calculate next available date
+          const nextAvailableDate = new Date(lastUpload);
+          nextAvailableDate.setDate(nextAvailableDate.getDate() + 7);
+          
+          return res.status(429).json({
+            success: false,
+            error: 'AVATAR_UPLOAD_COOLDOWN',
+            message: `You can only change your profile picture once per week. Please wait ${remainingDays} day${remainingDays > 1 ? 's' : ''} (${hoursRemaining} hour${hoursRemaining > 1 ? 's' : ''}).`,
+            data: {
+              lastUpload: user.lastAvatarUpload,
+              nextAvailableDate: nextAvailableDate.toISOString(),
+              remainingDays,
+              remainingHours: hoursRemaining
+            }
+          });
+        }
+      }
+    }
+
     // Handle avatar - prefer Cloudflare R2 URL over base64
     let finalAvatarUrl = null;
     let finalAvatarData = null;
@@ -275,6 +313,8 @@ router.post('/profile', authenticateToken, upload.fields([{ name: 'avatar', maxC
         ...(finalAvatarUrl !== null && { avatarUrl: finalAvatarUrl }),
         ...(finalAvatarData !== null && { avatarData: finalAvatarData }),
         ...(finalAvatarType && { avatarType: finalAvatarType }),
+        // Update lastAvatarUpload timestamp if avatar is being uploaded
+        ...(isUploadingAvatar && { lastAvatarUpload: new Date() }),
       },
       select: {
         id: true,
@@ -511,7 +551,7 @@ router.get('/badges', authenticateToken, async (req, res) => {
         },
         orderBy: { earnedAt: 'desc' }
       });
-    }, 3600); // 1 hour TTL (write-through cache with safety net)
+    }, 600); // 10 minutes TTL (write-through cache with safety net)
 
     res.json({
       success: true,
@@ -555,7 +595,7 @@ router.get('/achievements', authenticateToken, async (req, res) => {
         totalCount: achievementsCount,
         recentAchievements
       };
-    }, 3600); // 1 hour TTL (write-through cache with safety net)
+    }, 600); // 10 minutes TTL (write-through cache with safety net)
 
     res.json({
       success: true,
@@ -1176,7 +1216,7 @@ router.get('/:userId/articles', async (req, res) => {
           totalPages: Math.ceil(total / limit)
         }
       };
-    }, 3600); // 1 hour TTL (write-through cache with safety net)
+    }, 600); // 10 minutes TTL (write-through cache with safety net)
 
     return res.json({
       success: true,

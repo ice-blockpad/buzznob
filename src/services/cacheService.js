@@ -119,10 +119,10 @@ class CacheService {
     try {
       // Write-through: Update all article list caches with fresh data
       const [trending10, trending20, featured10, featured20] = await Promise.all([
-        this.writeThroughArticleList('articles:trending:10', () => fetchTrendingFn(10), 3600),
-        this.writeThroughArticleList('articles:trending:20', () => fetchTrendingFn(20), 3600),
-        this.writeThroughArticleList('articles:featured:10', () => fetchFeaturedFn(10), 3600),
-        this.writeThroughArticleList('articles:featured:20', () => fetchFeaturedFn(20), 3600),
+        this.writeThroughArticleList('articles:trending:10', () => fetchTrendingFn(10), 600),
+        this.writeThroughArticleList('articles:trending:20', () => fetchTrendingFn(20), 600),
+        this.writeThroughArticleList('articles:featured:10', () => fetchFeaturedFn(10), 600),
+        this.writeThroughArticleList('articles:featured:20', () => fetchFeaturedFn(20), 600),
       ]);
 
       console.log('✅ Refreshed article caches with fresh data (write-through)');
@@ -232,7 +232,7 @@ class CacheService {
   async refreshReadCount(articleId, fetchReadCountFn) {
     try {
       // Write-through: Update cache with fresh read count
-      await this.writeThroughReadCount(articleId, fetchReadCountFn, 3600); // 1 hour TTL
+      await this.writeThroughReadCount(articleId, fetchReadCountFn, 600); // 10 minutes TTL
       console.log(`✅ Refreshed read count cache for article ${articleId} (write-through)`);
     } catch (error) {
       console.error(`Error refreshing read count cache for article ${articleId}:`, error);
@@ -300,7 +300,7 @@ class CacheService {
    * @param {number} ttlSeconds - Cache TTL in seconds
    * @returns {Promise<any>} - Fresh data (also cached)
    */
-  async writeThroughArticleList(cacheKey, fetchFn, ttlSeconds = 3600) {
+  async writeThroughArticleList(cacheKey, fetchFn, ttlSeconds = 600) {
     try {
       // Fetch fresh data from database
       const data = await fetchFn();
@@ -378,7 +378,7 @@ class CacheService {
    * @param {number} ttlSeconds - Cache TTL in seconds
    * @returns {Promise<any>} - Fresh read count (also cached)
    */
-  async writeThroughReadCount(articleId, fetchFn, ttlSeconds = 3600) {
+  async writeThroughReadCount(articleId, fetchFn, ttlSeconds = 600) {
     try {
       const cacheKey = `readcount:${articleId}`;
       

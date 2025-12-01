@@ -39,6 +39,7 @@ model User {
   miningBalance    Float            @default(0) @map("mining_balance")
   pushToken        String?          @map("push_token")
   lastInactiveReminderAt DateTime? @map("last_inactive_reminder_at")
+  lastAvatarUpload        DateTime? @map("last_avatar_upload")
   totalArticlesReadCount Int         @default(0) @map("total_articles_read_count")
   totalMiningSessionsCount Int       @default(0) @map("total_mining_sessions_count")
   authoredArticles Article[]        @relation("ArticleAuthor")
