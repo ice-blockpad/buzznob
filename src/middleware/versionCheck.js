@@ -5,7 +5,7 @@
  */
 
 // Minimum required app version
-const MINIMUM_REQUIRED_VERSION = '1.0.4';
+const MINIMUM_REQUIRED_VERSION = '1.0.6';
 
 /**
  * Compare two version strings
