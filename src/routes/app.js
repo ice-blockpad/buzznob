@@ -9,11 +9,11 @@ const router = express.Router();
 router.get('/version', (req, res) => {
   try {
     // Minimum required version - update this when you want to force an update
-    // Format: "major.minor.patch" (e.g., "1.0.6")
-    const MINIMUM_REQUIRED_VERSION = '1.0.6';
+    // Format: "major.minor.patch" (e.g., "1.0.7")
+    const MINIMUM_REQUIRED_VERSION = '1.0.7';
     
     // Current latest version (optional, for display purposes)
-    const LATEST_VERSION = '1.0.6';
+    const LATEST_VERSION = '1.0.7';
     
     // App store URLs (update these with your actual store URLs)
     const APP_STORE_URLS = {
