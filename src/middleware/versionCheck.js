@@ -60,10 +60,20 @@ const checkAppVersion = (req, res, next) => {
   if (!appVersion) {
     console.warn(`🚫 Blocked request without X-App-Version header (likely old app):`, req.method, req.path);
     
+    // Create a very clear, actionable error message that will be displayed in Alert.alert()
+    const updateMessage = `⚠️ UPDATE REQUIRED ⚠️\n\n` +
+      `Your app version is outdated and no longer supported.\n\n` +
+      `Please update to version ${MINIMUM_REQUIRED_VERSION} or later to continue using BUZZNOB.\n\n` +
+      `To update:\n` +
+      `1. Open your App Store (iOS) or Play Store (Android)\n` +
+      `2. Search for "BUZZNOB"\n` +
+      `3. Tap "Update" or "Install"\n\n` +
+      `The app will not work until you update.`;
+    
     return res.status(426).json({
       success: false,
       error: 'APP_UPDATE_REQUIRED',
-      message: `App update required. Please update to version ${MINIMUM_REQUIRED_VERSION} or later.`,
+      message: updateMessage, // This will be shown in Alert.alert() in old apps
       code: 'UPDATE_REQUIRED',
       minimumVersion: MINIMUM_REQUIRED_VERSION,
       currentVersion: 'unknown',
@@ -78,10 +88,20 @@ const checkAppVersion = (req, res, next) => {
   if (!isVersionSupported(appVersion, MINIMUM_REQUIRED_VERSION)) {
     console.warn(`🚫 Blocked request from old app version: ${appVersion} (minimum: ${MINIMUM_REQUIRED_VERSION})`);
     
+    // Create a very clear, actionable error message that will be displayed in Alert.alert()
+    const updateMessage = `⚠️ UPDATE REQUIRED ⚠️\n\n` +
+      `Your app version (${appVersion}) is outdated and no longer supported.\n\n` +
+      `Please update to version ${MINIMUM_REQUIRED_VERSION} or later to continue using BUZZNOB.\n\n` +
+      `To update:\n` +
+      `1. Open your App Store (iOS) or Play Store (Android)\n` +
+      `2. Search for "BUZZNOB"\n` +
+      `3. Tap "Update" or "Install"\n\n` +
+      `The app will not work until you update.`;
+    
     return res.status(426).json({
       success: false,
       error: 'APP_UPDATE_REQUIRED',
-      message: `App update required. Please update to version ${MINIMUM_REQUIRED_VERSION} or later.`,
+      message: updateMessage, // This will be shown in Alert.alert() in old apps
       code: 'UPDATE_REQUIRED',
       minimumVersion: MINIMUM_REQUIRED_VERSION,
       currentVersion: appVersion,
