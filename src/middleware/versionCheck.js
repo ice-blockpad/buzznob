@@ -40,17 +40,25 @@ function isVersionSupported(version, minimumVersion) {
  * Checks X-App-Version header and blocks old versions
  */
 const checkAppVersion = (req, res, next) => {
+  // Debug: Log the actual path to verify (uncomment to debug)
+  // console.log('Version check - req.path:', req.path, 'req.originalUrl:', req.originalUrl, 'req.baseUrl:', req.baseUrl);
+  
   // Skip version check for:
   // - Health check endpoint
   // - App version endpoint itself (so new apps can check)
   // - Auth endpoints (so users can at least try to login and see the error)
+  // - Public referral endpoint (used by referral page website, not mobile app)
+  // Check both formats since middleware is mounted at /api (req.path is relative to mount point)
   if (
     req.path === '/health' ||
     req.path === '/api/app/version' ||
+    req.path === '/app/version' ||
     req.path.startsWith('/api/auth') ||
-    req.path === '/auth/check-username' ||
+    req.path.startsWith('/auth') ||
+    req.path === '/api/referrals/user-by-code' ||
+    req.path === '/referrals/user-by-code' ||
     req.path === '/api/auth/check-username' ||
-    req.path === '/api/referrals/user-by-code'
+    req.path === '/auth/check-username'
   ) {
     return next();
   }
