@@ -70,10 +70,14 @@ const checkAppVersion = (req, res, next) => {
       `3. Tap "Update" or "Install"\n\n` +
       `The app will not work until you update.`;
     
+    // Return 426 with clear message that old apps will display
+    // Old apps will catch this error and show Alert.alert('Error', error.message)
+    // So we put the full message in the 'message' field
     return res.status(426).json({
       success: false,
       error: 'APP_UPDATE_REQUIRED',
       message: updateMessage, // This will be shown in Alert.alert() in old apps
+      errorMessage: updateMessage, // Alternative field name some apps might use
       code: 'UPDATE_REQUIRED',
       minimumVersion: MINIMUM_REQUIRED_VERSION,
       currentVersion: 'unknown',
@@ -98,10 +102,12 @@ const checkAppVersion = (req, res, next) => {
       `3. Tap "Update" or "Install"\n\n` +
       `The app will not work until you update.`;
     
+    // Return 426 with clear message that old apps will display
     return res.status(426).json({
       success: false,
       error: 'APP_UPDATE_REQUIRED',
       message: updateMessage, // This will be shown in Alert.alert() in old apps
+      errorMessage: updateMessage, // Alternative field name some apps might use
       code: 'UPDATE_REQUIRED',
       minimumVersion: MINIMUM_REQUIRED_VERSION,
       currentVersion: appVersion,
