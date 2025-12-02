@@ -55,11 +55,23 @@ const checkAppVersion = (req, res, next) => {
   // Get app version from header
   const appVersion = req.headers['x-app-version'];
   
-  // If no version header is sent, allow the request (for backward compatibility)
-  // But log it for monitoring
+  // If no version header is sent, assume it's an old app version and block it
+  // Old apps (1.0.0) don't send this header, so they will be blocked
   if (!appVersion) {
-    console.warn('⚠️  API request without X-App-Version header:', req.method, req.path);
-    return next();
+    console.warn(`🚫 Blocked request without X-App-Version header (likely old app):`, req.method, req.path);
+    
+    return res.status(426).json({
+      success: false,
+      error: 'APP_UPDATE_REQUIRED',
+      message: `App update required. Please update to version ${MINIMUM_REQUIRED_VERSION} or later.`,
+      code: 'UPDATE_REQUIRED',
+      minimumVersion: MINIMUM_REQUIRED_VERSION,
+      currentVersion: 'unknown',
+      appStoreUrls: {
+        ios: 'https://apps.apple.com/app/buzznob/id123456789', // Update with your iOS App Store URL
+        android: 'https://play.google.com/store/apps/details?id=com.buzznob.mobile', // Update with your Android Play Store URL
+      }
+    });
   }
 
   // Check if version is supported
@@ -69,7 +81,7 @@ const checkAppVersion = (req, res, next) => {
     return res.status(426).json({
       success: false,
       error: 'APP_UPDATE_REQUIRED',
-      message: `App update required. Please update to the latest version.`,
+      message: `App update required. Please update to version ${MINIMUM_REQUIRED_VERSION} or later.`,
       code: 'UPDATE_REQUIRED',
       minimumVersion: MINIMUM_REQUIRED_VERSION,
       currentVersion: appVersion,
