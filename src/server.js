@@ -29,6 +29,8 @@ const dataRoutes = require('./routes/data');
 const achievementRoutes = require('./routes/achievements');
 const uploadRoutes = require('./routes/uploads');
 const questRoutes = require('./routes/quests');
+const appRoutes = require('./routes/app');
+const { checkAppVersion } = require('./middleware/versionCheck');
 const { errorHandler } = require('./middleware/errorHandler');
 const { connectDB } = require('./config/database');
 const { autoSyncDatabase } = require('./scripts/autoSync');
@@ -129,7 +131,8 @@ app.use(cors({
     'Accept',
     'Origin',
     'Cache-Control',
-    'X-File-Name'
+    'X-File-Name',
+    'X-App-Version'
   ],
   exposedHeaders: ['X-Total-Count'],
   optionsSuccessStatus: 200,
@@ -194,6 +197,10 @@ app.get('/health', (req, res) => {
 // Static file serving for uploaded images
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
+// Version check middleware - blocks old app versions
+// Applied to all API routes except auth and version check endpoints
+app.use('/api', checkAppVersion);
+
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -209,6 +216,7 @@ app.use('/api/data', dataRoutes);
 app.use('/api/achievements', achievementRoutes);
 app.use('/api/uploads', uploadRoutes);
 app.use('/api/quests', questRoutes);
+app.use('/api/app', appRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
