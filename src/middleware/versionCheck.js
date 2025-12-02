@@ -50,7 +50,8 @@ const checkAppVersion = (req, res, next) => {
     req.path === '/api/app/version' ||
     req.path.startsWith('/api/auth') ||
     req.path === '/auth/check-username' ||
-    req.path === '/api/auth/check-username'
+    req.path === '/api/auth/check-username' ||
+    req.path === '/api/referrals/user-by-code'
   ) {
     return next();
   }
