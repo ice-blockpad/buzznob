@@ -515,17 +515,17 @@ router.post('/start', authenticateToken, async (req, res) => {
       
       // Create new mining session atomically
       return await tx.miningSession.create({
-        data: {
-          userId,
-          baseReward,
-          currentRate: initialRate,
-          totalMined: 0,
-          lastUpdate: now,
-          startedAt: now,
-          endsAt: endsAt,
-          duration: duration,
-          isActive: true
-        }
+      data: {
+        userId,
+        baseReward,
+        currentRate: initialRate,
+        totalMined: 0,
+        lastUpdate: now,
+        startedAt: now,
+        endsAt: endsAt,
+        duration: duration,
+        isActive: true
+      }
       });
     });
 

@@ -54,12 +54,12 @@ router.get('/trending', optionalAuth, async (req, res) => {
         }
       });
 
-      // Get read counts for all articles
+      // Get read counts for all articles (using ReadArticle for historical counts)
       const articleIds = articles.map(a => a.id);
       const readCountMap = new Map();
       
       if (articleIds.length > 0) {
-        const readCounts = await prisma.userActivity.groupBy({
+        const readCounts = await prisma.readArticle.groupBy({
           by: ['articleId'],
           where: {
             articleId: { in: articleIds }
@@ -145,12 +145,12 @@ router.get('/featured', optionalAuth, async (req, res) => {
         }
       });
 
-      // Get read counts for all articles
+      // Get read counts for all articles (using ReadArticle for historical counts)
       const articleIds = articles.map(a => a.id);
       const readCountMap = new Map();
       
       if (articleIds.length > 0) {
-        const readCounts = await prisma.userActivity.groupBy({
+        const readCounts = await prisma.readArticle.groupBy({
           by: ['articleId'],
           where: {
             articleId: { in: articleIds }
@@ -892,8 +892,8 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
     // This ensures cache is updated before response is sent, preventing stale data window
     // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
     try {
-      // Refresh read count cache
-      const readCount = await prisma.userActivity.count({
+      // Refresh read count cache (using ReadArticle for historical counts)
+      const readCount = await prisma.readArticle.count({
         where: { articleId: id }
       });
       const articleData = await prisma.article.findUnique({

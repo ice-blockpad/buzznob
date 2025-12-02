@@ -43,12 +43,12 @@ async function fetchTrendingArticles(limit) {
     }
   });
 
-  // Get read counts
+  // Get read counts (using ReadArticle for historical counts)
   const articleIds = articles.map(a => a.id);
   const readCountMap = new Map();
   
   if (articleIds.length > 0) {
-    const readCounts = await prisma.userActivity.groupBy({
+    const readCounts = await prisma.readArticle.groupBy({
       by: ['articleId'],
       where: {
         articleId: { in: articleIds }
@@ -112,12 +112,12 @@ async function fetchFeaturedArticles(limit) {
     }
   });
 
-  // Get read counts
+  // Get read counts (using ReadArticle for historical counts)
   const articleIds = articles.map(a => a.id);
   const readCountMap = new Map();
   
   if (articleIds.length > 0) {
-    const readCounts = await prisma.userActivity.groupBy({
+    const readCounts = await prisma.readArticle.groupBy({
       by: ['articleId'],
       where: {
         articleId: { in: articleIds }

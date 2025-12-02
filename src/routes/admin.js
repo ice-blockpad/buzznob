@@ -1328,8 +1328,8 @@ router.patch('/articles/:id/read-count/reset', authenticateToken, requireAdmin, 
   try {
     const { id } = req.params;
 
-    // Get actual read count
-    const actualCount = await prisma.userActivity.count({
+    // Get actual read count (using ReadArticle for historical counts)
+    const actualCount = await prisma.readArticle.count({
       where: { articleId: id }
     });
 
@@ -1381,7 +1381,8 @@ router.get('/articles/:id/read-count/actual', authenticateToken, requireAdmin, a
 
     // Write-through cache: Get from cache, or fetch from DB and cache
     const result = await cacheService.getOrSet(cacheKey, async () => {
-      const actualCount = await prisma.userActivity.count({
+      // Use ReadArticle for historical counts (includes all reads, even if UserActivity was cleaned up)
+      const actualCount = await prisma.readArticle.count({
         where: { articleId: id }
       });
 
