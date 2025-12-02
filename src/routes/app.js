@@ -27,7 +27,7 @@ router.get('/version', (req, res) => {
         minimumRequiredVersion: MINIMUM_REQUIRED_VERSION,
         latestVersion: LATEST_VERSION,
         appStoreUrls: APP_STORE_URLS,
-        updateRequired: true, // Set to false if you want to allow older versions temporarily
+        updateRequired: true, // Frontend will check if user's version >= minimumRequiredVersion
       }
     });
   } catch (error) {

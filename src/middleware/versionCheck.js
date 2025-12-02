@@ -55,23 +55,36 @@ const checkAppVersion = (req, res, next) => {
   // Get app version from header
   const appVersion = req.headers['x-app-version'];
   
-  // If no version header is sent, assume it's an old app version and block it
-  // Old apps (1.0.0) don't send this header, so they will be blocked
+  // If no version header is sent, check if we should allow it
+  // During transition period (when minimum version is low like 1.0.4), allow requests without header
+  // This allows users with versions 1.0.4-1.0.5 who installed before header code was added
   if (!appVersion) {
-    console.warn(`🚫 Blocked request without X-App-Version header (likely old app):`, req.method, req.path);
+    // If minimum version is 1.0.4 or lower, allow requests without header (transition period)
+    // This allows 1.0.4 and 1.0.5 users who don't have the header code yet
+    const minVersionParts = MINIMUM_REQUIRED_VERSION.split('.').map(Number);
+    const isTransitionPeriod = minVersionParts[0] === 1 && minVersionParts[1] === 0 && minVersionParts[2] <= 4;
     
-    return res.status(426).json({
-      success: false,
-      error: 'APP_UPDATE_REQUIRED',
-      message: `App update required. Please update to version ${MINIMUM_REQUIRED_VERSION} or later.`,
-      code: 'UPDATE_REQUIRED',
-      minimumVersion: MINIMUM_REQUIRED_VERSION,
-      currentVersion: 'unknown',
-      appStoreUrls: {
-        ios: 'https://apps.apple.com/app/buzznob/id123456789', // Update with your iOS App Store URL
-        android: 'https://play.google.com/store/apps/details?id=com.buzznob.mobile', // Update with your Android Play Store URL
-      }
-    });
+    if (isTransitionPeriod) {
+      // Allow request during transition period (for versions 1.0.4-1.0.5 without header code)
+      console.warn(`⚠️  Allowing request without X-App-Version header (transition period, min: ${MINIMUM_REQUIRED_VERSION}):`, req.method, req.path);
+      return next();
+    } else {
+      // Block requests without header when minimum version is higher (strict enforcement)
+      console.warn(`🚫 Blocked request without X-App-Version header (likely old app):`, req.method, req.path);
+      
+      return res.status(426).json({
+        success: false,
+        error: 'APP_UPDATE_REQUIRED',
+        message: `App update required. Please update to version ${MINIMUM_REQUIRED_VERSION} or later.`,
+        code: 'UPDATE_REQUIRED',
+        minimumVersion: MINIMUM_REQUIRED_VERSION,
+        currentVersion: 'unknown',
+        appStoreUrls: {
+          ios: 'https://apps.apple.com/app/buzznob/id123456789', // Update with your iOS App Store URL
+          android: 'https://play.google.com/store/apps/details?id=com.buzznob.mobile', // Update with your Android Play Store URL
+        }
+      });
+    }
   }
 
   // Check if version is supported
