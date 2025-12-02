@@ -44,10 +44,13 @@ const checkAppVersion = (req, res, next) => {
   // - Health check endpoint
   // - App version endpoint itself (so new apps can check)
   // - Auth endpoints (so users can at least try to login and see the error)
+  // - Check username endpoint (bypass for current release, will be enforced in next release)
   if (
     req.path === '/health' ||
     req.path === '/api/app/version' ||
-    req.path.startsWith('/api/auth')
+    req.path.startsWith('/api/auth') ||
+    req.path === '/auth/check-username' ||
+    req.path === '/api/auth/check-username'
   ) {
     return next();
   }
