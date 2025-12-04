@@ -283,9 +283,9 @@ router.get('/', optionalAuth, async (req, res) => {
       totalCount = await prisma.article.count({ where: baseWhere });
     }
 
-    // Get read counts for all articles
+    // Get read counts for all articles (using ReadArticle for historical counts)
     const articleIds = articles.map(a => a.id);
-    const readCounts = await prisma.userActivity.groupBy({
+    const readCounts = await prisma.readArticle.groupBy({
       by: ['articleId'],
       where: {
         articleId: { in: articleIds }
@@ -303,7 +303,7 @@ router.get('/', optionalAuth, async (req, res) => {
     // Check if user has read each article (if authenticated)
     let articlesWithReadStatus = articles;
     if (req.user && req.user.id) {
-      const userActivities = await prisma.userActivity.findMany({
+      const userActivities = await prisma.readArticle.findMany({
         where: {
           userId: req.user.id,
           articleId: { in: articleIds }
@@ -465,9 +465,9 @@ router.get('/search', optionalAuth, async (req, res) => {
       totalCount = await prisma.article.count({ where: baseWhere });
     }
 
-    // Get read counts for all articles
+    // Get read counts for all articles (using ReadArticle for historical counts)
     const articleIds = articles.map(a => a.id);
-    const readCounts = await prisma.userActivity.groupBy({
+    const readCounts = await prisma.readArticle.groupBy({
       by: ['articleId'],
       where: {
         articleId: { in: articleIds }
@@ -485,7 +485,7 @@ router.get('/search', optionalAuth, async (req, res) => {
     // Check if user has read each article (if authenticated)
     let articlesWithReadStatus = articles;
     if (req.user && req.user.id) {
-      const userActivities = await prisma.userActivity.findMany({
+      const userActivities = await prisma.readArticle.findMany({
         where: {
           userId: req.user.id,
           articleId: { in: articleIds }
