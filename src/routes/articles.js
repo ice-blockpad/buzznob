@@ -300,26 +300,36 @@ router.get('/', optionalAuth, async (req, res) => {
       readCountMap.set(item.articleId, item._count.articleId);
     });
 
-    // Check if user has read each article (if authenticated)
+    // Check if user has read each article and claimed reward (if authenticated)
     let articlesWithReadStatus = articles;
     if (req.user && req.user.id) {
-      const userActivities = await prisma.readArticle.findMany({
+      const userReadArticles = await prisma.readArticle.findMany({
         where: {
           userId: req.user.id,
           articleId: { in: articleIds }
         },
         select: {
-          articleId: true
+          articleId: true,
+          rewardClaimedAt: true
         }
       });
       
-      const readArticleIds = new Set(userActivities.map(activity => activity.articleId));
+      const readArticleMap = new Map();
+      userReadArticles.forEach(ra => {
+        readArticleMap.set(ra.articleId, {
+          isRead: true,
+          hasClaimedReward: !!ra.rewardClaimedAt
+        });
+      });
+      
       articlesWithReadStatus = articles.map(article => {
         const actualCount = readCountMap.get(article.id) || 0;
         const readCount = article.manualReadCount !== null ? article.manualReadCount : actualCount;
+        const readInfo = readArticleMap.get(article.id);
         return {
           ...article,
-          isRead: readArticleIds.has(article.id),
+          isRead: readInfo?.isRead || false,
+          hasClaimedReward: readInfo?.hasClaimedReward || false,
           readCount
         };
       });
@@ -331,6 +341,7 @@ router.get('/', optionalAuth, async (req, res) => {
         return {
           ...article,
           isRead: false,
+          hasClaimedReward: false,
           readCount
         };
       });
@@ -482,26 +493,36 @@ router.get('/search', optionalAuth, async (req, res) => {
       readCountMap.set(item.articleId, item._count.articleId);
     });
 
-    // Check if user has read each article (if authenticated)
+    // Check if user has read each article and claimed reward (if authenticated)
     let articlesWithReadStatus = articles;
     if (req.user && req.user.id) {
-      const userActivities = await prisma.readArticle.findMany({
+      const userReadArticles = await prisma.readArticle.findMany({
         where: {
           userId: req.user.id,
           articleId: { in: articleIds }
         },
         select: {
-          articleId: true
+          articleId: true,
+          rewardClaimedAt: true
         }
       });
       
-      const readArticleIds = new Set(userActivities.map(activity => activity.articleId));
+      const readArticleMap = new Map();
+      userReadArticles.forEach(ra => {
+        readArticleMap.set(ra.articleId, {
+          isRead: true,
+          hasClaimedReward: !!ra.rewardClaimedAt
+        });
+      });
+      
       articlesWithReadStatus = articles.map(article => {
         const actualCount = readCountMap.get(article.id) || 0;
         const readCount = article.manualReadCount !== null ? article.manualReadCount : actualCount;
+        const readInfo = readArticleMap.get(article.id);
         return {
           ...article,
-          isRead: readArticleIds.has(article.id),
+          isRead: readInfo?.isRead || false,
+          hasClaimedReward: readInfo?.hasClaimedReward || false,
           readCount
         };
       });
@@ -513,6 +534,7 @@ router.get('/search', optionalAuth, async (req, res) => {
         return {
           ...article,
           isRead: false,
+          hasClaimedReward: false,
           readCount
         };
       });
