@@ -26,7 +26,7 @@ router.get('/profile', authenticateToken, async (req, res) => {
           u.referral_code as "referralCode", u.is_active as "isActive", u.is_verified as "isVerified",
           u.kyc_status as "kycStatus", u.bio, u.created_at as "createdAt", u.updated_at as "updatedAt",
           u.last_avatar_upload as "lastAvatarUpload",
-          COALESCE(u.total_articles_read_count, 0) as "totalArticlesRead",
+          COALESCE((SELECT COUNT(*) FROM read_articles WHERE user_id = u.id), 0) as "totalArticlesRead",
           COUNT(DISTINCT ub.id) as "achievementsCount",
           (SELECT COUNT(*) FROM users WHERE points > u.points) + 1 as rank
         FROM users u
@@ -434,8 +434,8 @@ router.get('/stats', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Get user activities count
-    const activitiesCount = await prisma.userActivity.count({
+    // Get user articles read count (using ReadArticle for consistency with article read counts)
+    const activitiesCount = await prisma.readArticle.count({
       where: { userId }
     });
 
