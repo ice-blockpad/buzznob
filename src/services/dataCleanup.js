@@ -105,6 +105,7 @@ async function cleanupDailyRewards() {
 /**
  * Cleanup User Activities - Delete records older than 7 days
  * Note: ReadArticle records are kept forever for duplicate prevention
+ * Solution B: Reward claim status is tracked in ReadArticle.rewardClaimedAt, so UserActivity can be safely deleted
  * @returns {Promise<Object>} Cleanup results
  */
 async function cleanupUserActivities() {
@@ -124,7 +125,7 @@ async function cleanupUserActivities() {
       }
     }
 
-    // Delete old activities
+    // Delete old activities (reward claim status is preserved in ReadArticle.rewardClaimedAt)
     const deleteResult = await prisma.userActivity.deleteMany({
       where: {
         completedAt: {
@@ -269,7 +270,7 @@ async function runCleanup() {
 
   const results = {
     dailyRewards: { deleted: 0, errors: 0 },
-    userActivities: { deleted: 0, errors: 0 },
+    userActivities: { deleted: 0, aggregated: 0, errors: 0 },
     miningSessions: { deleted: 0, errors: 0 },
     miningClaims: { deleted: 0, errors: 0 },
     duration: 0

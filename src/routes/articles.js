@@ -704,16 +704,22 @@ router.get('/:id', optionalAuth, async (req, res) => {
       });
     }
 
-    // Check if user has read this article (if authenticated)
+    // Check if user has read this article and claimed reward (if authenticated)
     let isRead = false;
+    let hasClaimedReward = false;
     if (req.user && req.user.id) {
-      const userActivity = await prisma.userActivity.findFirst({
+      // Check if article was read and if reward was claimed
+      const readArticle = await prisma.readArticle.findFirst({
         where: {
           userId: req.user.id,
           articleId: id
+        },
+        select: {
+          rewardClaimedAt: true
         }
       });
-      isRead = !!userActivity;
+      isRead = !!readArticle;
+      hasClaimedReward = !!readArticle?.rewardClaimedAt;
     }
 
     res.json({
@@ -721,7 +727,8 @@ router.get('/:id', optionalAuth, async (req, res) => {
       data: { 
         article: {
           ...article,
-          isRead
+          isRead,
+          hasClaimedReward
         }
       }
     });
@@ -736,11 +743,11 @@ router.get('/:id', optionalAuth, async (req, res) => {
   }
 });
 
-// Mark article as read and earn points
+// Option 1: Mark article as read (without claiming reward)
+// Users can read unlimited articles, but can only claim rewards for up to 10 per day
 router.post('/:id/read', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { readDuration } = req.body; // in seconds
     const userId = req.user.id;
 
     // Check if article exists and is published
@@ -759,7 +766,152 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
       });
     }
 
-    // Check if user already read this article (using ReadArticle for permanent duplicate prevention)
+    // Use transaction to atomically create ReadArticle record
+    // This prevents race conditions where user could mark same article as read twice
+    await prisma.$transaction(async (tx) => {
+      // Re-fetch article inside transaction to prevent TOCTOU vulnerability
+      const articleInTx = await tx.article.findFirst({
+        where: { 
+          id,
+          status: 'published' // Double-check article is still published
+        },
+        select: {
+          id: true,
+          status: true
+        }
+      });
+
+      if (!articleInTx) {
+        throw new Error('ARTICLE_NOT_FOUND_OR_UNPUBLISHED');
+      }
+
+      // Double-check if article already read within transaction
+      const existingReadInTx = await tx.readArticle.findFirst({
+        where: {
+          userId,
+          articleId: id
+        }
+      });
+
+      if (existingReadInTx) {
+        throw new Error('ARTICLE_ALREADY_READ');
+      }
+
+      // Create ReadArticle record for permanent duplicate prevention
+      await tx.readArticle.create({
+        data: {
+          userId,
+          articleId: id
+        }
+      });
+    });
+
+    // Write-through cache: Refresh read count cache
+    try {
+      const readCount = await prisma.readArticle.count({
+        where: { articleId: id }
+      });
+      const articleData = await prisma.article.findUnique({
+        where: { id },
+        select: { manualReadCount: true }
+      });
+      const actualCount = articleData?.manualReadCount !== null ? articleData.manualReadCount : readCount;
+      await cacheService.writeThroughReadCount(id, async () => actualCount, 600); // 10 minutes TTL
+    } catch (err) {
+      // Non-blocking: Log error but don't fail the request
+      console.error('Error refreshing read count cache after article read:', err);
+    }
+
+    // Check if user has already claimed reward for this article
+    const readArticleRecord = await prisma.readArticle.findFirst({
+      where: {
+        userId,
+        articleId: id
+      },
+      select: {
+        rewardClaimedAt: true
+      }
+    });
+
+    const hasClaimedReward = !!readArticleRecord?.rewardClaimedAt;
+
+    res.json({
+      success: true,
+      message: 'Article marked as read',
+      data: {
+        hasClaimedReward,
+        canClaimReward: !hasClaimedReward
+      }
+    });
+
+  } catch (error) {
+    console.error('Mark article as read error:', error);
+    
+    // Handle specific errors from transaction
+    if (error.message === 'ARTICLE_NOT_FOUND_OR_UNPUBLISHED') {
+      return res.status(404).json({
+        success: false,
+        error: 'ARTICLE_NOT_FOUND',
+        message: 'Article not found or has been unpublished'
+      });
+    }
+    
+    if (error.message === 'ARTICLE_ALREADY_READ') {
+      // Article already read - check if reward was claimed
+      const readArticleRecord = await prisma.readArticle.findFirst({
+        where: {
+          userId: req.user.id,
+          articleId: req.params.id
+        },
+        select: {
+          rewardClaimedAt: true
+        }
+      });
+
+      return res.status(400).json({
+        success: false,
+        error: 'ARTICLE_ALREADY_READ',
+        message: 'Article has already been read',
+        data: {
+          hasClaimedReward: !!readArticleRecord?.rewardClaimedAt,
+          canClaimReward: !readArticleRecord?.rewardClaimedAt
+        }
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: 'ARTICLE_READ_ERROR',
+      message: 'Failed to mark article as read'
+    });
+  }
+});
+
+// Option 1: Claim reward for an already-read article
+// Users can claim rewards for articles they've read (up to 10 rewards per day)
+router.post('/:id/claim-reward', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { readDuration } = req.body; // in seconds
+    const userId = req.user.id;
+
+    // Check if article exists and is published
+    const article = await prisma.article.findFirst({
+      where: { 
+        id,
+        status: 'published' // Only allow claiming rewards for published articles
+      }
+    });
+
+    if (!article) {
+      return res.status(404).json({
+        success: false,
+        error: 'ARTICLE_NOT_FOUND',
+        message: 'Article not found'
+      });
+    }
+
+    // Check if user has read this article
     const existingRead = await prisma.readArticle.findFirst({
       where: {
         userId,
@@ -767,17 +919,39 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
       }
     });
 
-    if (existingRead) {
+    if (!existingRead) {
       return res.status(400).json({
         success: false,
-        error: 'ARTICLE_ALREADY_READ',
-        message: 'Article has already been read'
+        error: 'ARTICLE_NOT_READ',
+        message: 'You must read the article before claiming the reward'
       });
     }
 
-    // Check daily article reading limit (10 articles per day)
+    // Check if user has already claimed reward for this article (using ReadArticle.rewardClaimedAt)
+    const readArticleRecord = await prisma.readArticle.findFirst({
+      where: {
+        userId,
+        articleId: id
+      },
+      select: {
+        rewardClaimedAt: true
+      }
+    });
+
+    if (readArticleRecord?.rewardClaimedAt) {
+      return res.status(400).json({
+        success: false,
+        error: 'REWARD_ALREADY_CLAIMED',
+        message: 'You have already claimed the reward for this article',
+        data: {
+          rewardClaimedAt: readArticleRecord.rewardClaimedAt
+        }
+      });
+    }
+
+    // Check daily reward limit (10 rewards per day)
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Start of today
+    today.setHours(0, 0, 0, 0); // Start of today (local time)
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1); // Start of tomorrow
 
@@ -794,17 +968,17 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
     if (todayActivities >= 10) {
       return res.status(400).json({
         success: false,
-        error: 'DAILY_ARTICLE_LIMIT_REACHED',
-        message: 'You have reached the daily reward limit of 10 articles. Come back tomorrow to earn more rewards!',
+        error: 'DAILY_REWARD_LIMIT_REACHED',
+        message: 'You have reached the daily reward limit of 10 articles. You can claim rewards for articles read today starting tomorrow.',
         data: {
-          articlesReadToday: todayActivities,
+          rewardsClaimedToday: todayActivities,
           dailyLimit: 10
         }
       });
     }
 
     // Use transaction to atomically create activity and update points
-    // This prevents race conditions where user could read same article twice or bypass daily limit
+    // This prevents race conditions where user could claim same article twice or bypass daily limit
     const activity = await prisma.$transaction(async (tx) => {
       // Re-fetch article inside transaction to prevent TOCTOU vulnerability
       // This ensures we use the current pointsValue even if admin updates it between initial fetch and transaction
@@ -824,16 +998,19 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
         throw new Error('ARTICLE_NOT_FOUND_OR_UNPUBLISHED');
       }
 
-      // Double-check if article already read within transaction (using ReadArticle)
-      const existingReadInTx = await tx.readArticle.findFirst({
+      // Double-check if reward already claimed within transaction (using ReadArticle.rewardClaimedAt)
+      const readArticleInTx = await tx.readArticle.findFirst({
         where: {
           userId,
           articleId: id
+        },
+        select: {
+          rewardClaimedAt: true
         }
       });
 
-      if (existingReadInTx) {
-        throw new Error('ARTICLE_ALREADY_READ');
+      if (readArticleInTx?.rewardClaimedAt) {
+        throw new Error('REWARD_ALREADY_CLAIMED');
       }
 
       // Double-check daily limit within transaction
@@ -848,14 +1025,19 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
       });
 
       if (todayActivitiesInTx >= 10) {
-        throw new Error('DAILY_ARTICLE_LIMIT_REACHED');
+        throw new Error('DAILY_REWARD_LIMIT_REACHED');
       }
 
-      // Create ReadArticle record for permanent duplicate prevention
-      await tx.readArticle.create({
+      // Update ReadArticle to mark reward as claimed
+      await tx.readArticle.update({
+        where: {
+          userId_articleId: {
+            userId,
+            articleId: id
+          }
+        },
         data: {
-          userId,
-          articleId: id
+          rewardClaimedAt: new Date()
         }
       });
 
@@ -888,40 +1070,31 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
     // Check for badge eligibility
     await achievementsService.checkBadgeEligibility(userId);
 
-    // Write-through cache: Refresh read count and user profile cache SYNCHRONOUSLY
+    // Write-through cache: Refresh user profile cache SYNCHRONOUSLY
     // This ensures cache is updated before response is sent, preventing stale data window
     // Note: Leaderboard cache is time-based (10 min TTL) and will update automatically
     try {
-      // Refresh read count cache (using ReadArticle for historical counts)
-      const readCount = await prisma.readArticle.count({
-        where: { articleId: id }
-      });
-      const articleData = await prisma.article.findUnique({
-        where: { id },
-        select: { manualReadCount: true }
-      });
-      const actualCount = articleData?.manualReadCount !== null ? articleData.manualReadCount : readCount;
-      await cacheService.writeThroughReadCount(id, async () => actualCount, 600); // 10 minutes TTL
-      
       // Refresh user profile cache (points changed)
       // Leaderboard will update automatically every 10 minutes
       await refreshUserAndLeaderboardCaches(userId);
     } catch (err) {
       // Non-blocking: Log error but don't fail the request
-      console.error('Error refreshing caches after article read:', err);
+      console.error('Error refreshing caches after reward claim:', err);
     }
 
     res.json({
       success: true,
-      message: 'Article marked as read',
+      message: 'Reward claimed successfully',
       data: {
         pointsEarned: activity.pointsEarned,
-        totalPoints: req.user.points + activity.pointsEarned
+        totalPoints: req.user.points + activity.pointsEarned,
+        rewardsClaimedToday: todayActivities + 1,
+        dailyLimit: 10
       }
     });
 
   } catch (error) {
-    console.error('Mark article as read error:', error);
+    console.error('Claim article reward error:', error);
     
     // Handle specific errors from transaction
     if (error.message === 'ARTICLE_NOT_FOUND_OR_UNPUBLISHED') {
@@ -932,21 +1105,21 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
       });
     }
     
-    if (error.message === 'ARTICLE_ALREADY_READ') {
+    if (error.message === 'REWARD_ALREADY_CLAIMED') {
       return res.status(400).json({
         success: false,
-        error: 'ARTICLE_ALREADY_READ',
-        message: 'Article has already been read'
+        error: 'REWARD_ALREADY_CLAIMED',
+        message: 'You have already claimed the reward for this article'
       });
     }
     
-    if (error.message === 'DAILY_ARTICLE_LIMIT_REACHED') {
+    if (error.message === 'DAILY_REWARD_LIMIT_REACHED') {
       return res.status(400).json({
         success: false,
-        error: 'DAILY_ARTICLE_LIMIT_REACHED',
-        message: 'You have reached the daily reward limit of 10 articles. Come back tomorrow to earn more rewards!',
+        error: 'DAILY_REWARD_LIMIT_REACHED',
+        message: 'You have reached the daily reward limit of 10 articles. You can claim rewards for articles read today starting tomorrow.',
         data: {
-          articlesReadToday: 10,
+          rewardsClaimedToday: 10,
           dailyLimit: 10
         }
       });
@@ -954,8 +1127,8 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
     
     res.status(500).json({
       success: false,
-      error: 'ARTICLE_READ_ERROR',
-      message: 'Failed to mark article as read'
+      error: 'REWARD_CLAIM_ERROR',
+      message: 'Failed to claim reward'
     });
   }
 });
