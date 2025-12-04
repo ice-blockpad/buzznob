@@ -775,7 +775,7 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
       });
     }
 
-    // Check daily article reading limit (3 articles per day)
+    // Check daily article reading limit (10 articles per day)
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Start of today
     const tomorrow = new Date(today);
@@ -791,14 +791,14 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
       }
     });
 
-    if (todayActivities >= 3) {
+    if (todayActivities >= 10) {
       return res.status(400).json({
         success: false,
         error: 'DAILY_ARTICLE_LIMIT_REACHED',
-        message: 'You have reached the daily reward limit of 3 articles. Come back tomorrow to earn more rewards!',
+        message: 'You have reached the daily reward limit of 10 articles. Come back tomorrow to earn more rewards!',
         data: {
           articlesReadToday: todayActivities,
-          dailyLimit: 3
+          dailyLimit: 10
         }
       });
     }
@@ -847,7 +847,7 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
         }
       });
 
-      if (todayActivitiesInTx >= 3) {
+      if (todayActivitiesInTx >= 10) {
         throw new Error('DAILY_ARTICLE_LIMIT_REACHED');
       }
 
@@ -944,10 +944,10 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'DAILY_ARTICLE_LIMIT_REACHED',
-        message: 'You have reached the daily reward limit of 3 articles. Come back tomorrow to earn more rewards!',
+        message: 'You have reached the daily reward limit of 10 articles. Come back tomorrow to earn more rewards!',
         data: {
-          articlesReadToday: 3,
-          dailyLimit: 3
+          articlesReadToday: 10,
+          dailyLimit: 10
         }
       });
     }

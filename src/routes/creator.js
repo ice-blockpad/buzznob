@@ -41,7 +41,7 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
     } = req.body;
 
     // Parse numeric values from FormData
-    const parsedPointsValue = parseInt(pointsValue) || 10;
+    const parsedPointsValue = parseInt(pointsValue) || 5;
     const parsedIsFeatured = isFeatured === 'true' || isFeatured === true;
 
     // Handle image - prefer Cloudflare R2 URL over base64

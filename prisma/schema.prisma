@@ -83,7 +83,7 @@ model Article {
   category         String
   sourceUrl        String?        @map("source_url")
   sourceName       String?        @map("source_name")
-  pointsValue      Int            @default(10) @map("points_value")
+  pointsValue      Int            @default(5) @map("points_value")
   isFeatured       Boolean        @default(false) @map("is_featured")
   isFeaturedArticle Boolean       @default(false) @map("is_featured_article")
   manualReadCount   Int?           @map("manual_read_count")
