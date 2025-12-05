@@ -8,22 +8,10 @@ const execPromise = util.promisify(exec);
  * Auto-sync database schema on server startup
  * This ensures the database is always in sync with the Prisma schema
  * 
- * In PM2 cluster mode, only the first instance (instance 0) should run the sync
- * to prevent multiple concurrent prisma db push commands from conflicting
+ * Uses a file lock mechanism to prevent concurrent syncs across instances
  */
 async function autoSyncDatabase() {
-  // Check if running in PM2 cluster mode
-  // PM2 sets NODE_APP_INSTANCE or instances environment variable
-  const pm2InstanceId = process.env.NODE_APP_INSTANCE || process.env.pm_id || process.env.INSTANCE_ID;
-  const isClusterMode = process.env.instances || process.env.pm_id !== undefined;
-  
-  // In cluster mode, only run sync on instance 0 (first instance)
-  if (isClusterMode && pm2InstanceId !== undefined && pm2InstanceId !== '0' && pm2InstanceId !== 0) {
-    console.log(`⏭️  Skipping database sync on PM2 instance ${pm2InstanceId} (only instance 0 runs sync)`);
-    return true; // Return success to allow server to start
-  }
-
-  // File lock mechanism to prevent concurrent syncs even if PM2 instance check fails
+  // File lock mechanism to prevent concurrent syncs
   const lockFile = path.join(__dirname, '../../.db-sync.lock');
   let lockAcquired = false;
 
@@ -73,7 +61,6 @@ async function autoSyncDatabase() {
         cwd: __dirname + '/../..',
         timeout: 30000 // 30 second timeout
       });
-      
       
       if (generateStdout) console.log(generateStdout);
       if (generateStderr && !generateStderr.includes('warnings') && !generateStderr.includes('EPERM')) {
