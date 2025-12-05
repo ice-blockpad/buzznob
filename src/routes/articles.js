@@ -809,11 +809,11 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
 
       // Double-check if article already read within transaction
       const existingReadInTx = await tx.readArticle.findFirst({
-        where: {
-          userId,
-          articleId: id
-        }
-      });
+      where: {
+        userId,
+        articleId: id
+      }
+    });
 
       if (existingReadInTx) {
         throw new Error('ARTICLE_ALREADY_READ');
@@ -900,7 +900,7 @@ router.post('/:id/read', authenticateToken, async (req, res) => {
         }
       });
     }
-    
+
     res.status(500).json({
       success: false,
       error: 'ARTICLE_READ_ERROR',
@@ -971,6 +971,27 @@ router.post('/:id/claim-reward', authenticateToken, async (req, res) => {
       });
     }
 
+    // Check if UserActivity already exists (prevents unique constraint violation)
+    // This can happen if reward was claimed before but rewardClaimedAt wasn't set properly
+    const existingActivity = await prisma.userActivity.findFirst({
+      where: {
+        userId,
+        articleId: id
+      }
+    });
+
+    if (existingActivity) {
+      return res.status(400).json({
+        success: false,
+        error: 'REWARD_ALREADY_CLAIMED',
+        message: 'You have already claimed the reward for this article',
+        data: {
+          activityId: existingActivity.id,
+          completedAt: existingActivity.completedAt
+        }
+      });
+    }
+
     // Check daily reward limit (10 rewards per day)
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Start of today (local time)
@@ -1035,6 +1056,19 @@ router.post('/:id/claim-reward', authenticateToken, async (req, res) => {
         throw new Error('REWARD_ALREADY_CLAIMED');
       }
 
+      // Check if UserActivity already exists (prevents unique constraint violation)
+      // This can happen if reward was claimed before but rewardClaimedAt wasn't set properly
+      const existingActivity = await tx.userActivity.findFirst({
+        where: {
+          userId,
+          articleId: id
+        }
+      });
+
+      if (existingActivity) {
+        throw new Error('REWARD_ALREADY_CLAIMED');
+      }
+
       // Double-check daily limit within transaction
       const todayActivitiesInTx = await tx.userActivity.count({
         where: {
@@ -1054,8 +1088,8 @@ router.post('/:id/claim-reward', authenticateToken, async (req, res) => {
       await tx.readArticle.update({
         where: {
           userId_articleId: {
-            userId,
-            articleId: id
+          userId,
+          articleId: id
           }
         },
         data: {
@@ -1117,6 +1151,15 @@ router.post('/:id/claim-reward', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Claim article reward error:', error);
+    
+    // Handle Prisma unique constraint error (P2002) - race condition fallback
+    if (error.code === 'P2002' && error.meta?.target?.includes('user_id') && error.meta?.target?.includes('article_id')) {
+      return res.status(400).json({
+        success: false,
+        error: 'REWARD_ALREADY_CLAIMED',
+        message: 'You have already claimed the reward for this article'
+      });
+    }
     
     // Handle specific errors from transaction
     if (error.message === 'ARTICLE_NOT_FOUND_OR_UNPUBLISHED') {
