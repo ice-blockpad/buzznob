@@ -64,6 +64,11 @@ class ArticleProcessor {
     let cleaned = content
       .replace(/<[^>]+>/g, ' ') // Remove HTML tags
       .replace(/\s*\.\.\.\s*\[\+\d+\s*chars?\]/gi, '') // Remove truncated indicators like "... [+6712 chars]"
+      .replace(/\s*\[Note:.*?\]/gi, '') // Remove notes like "[Note: This is a summary...]"
+      .replace(/\s*Source:\s*https?:\/\/[^\s]+/gi, '') // Remove source URLs
+      .replace(/\s*Read the full article at:\s*https?:\/\/[^\s]+/gi, '') // Remove "Read the full article" notes
+      .replace(/\s*\[Read more.*?\]/gi, '') // Remove "[Read more...]" links
+      .replace(/\s*\[Article truncated.*?\]/gi, '') // Remove truncation notes
       .replace(/\s+/g, ' ') // Normalize whitespace
       .trim();
 
@@ -75,7 +80,7 @@ class ArticleProcessor {
     // Increased to 50000 to allow full articles
     const maxLength = 50000;
     if (cleaned.length > maxLength) {
-      cleaned = cleaned.substring(0, maxLength) + '\n\n[Article truncated due to length]';
+      cleaned = cleaned.substring(0, maxLength) + '...';
     }
 
     return cleaned;

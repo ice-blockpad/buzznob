@@ -40,31 +40,85 @@ class ArticleScraper {
       });
       
       // Try common article content selectors (in order of preference)
-      const contentSelectors = [
-        'article',
-        '[role="article"]',
-        '.article-content',
-        '.article-body',
-        '.post-content',
-        '.entry-content',
-        '.content',
-        '.story-body',
-        '.article-text',
-        '.article-main',
-        '.article-wrapper',
-        '.post-body',
-        '.entry-body',
-        '.story-content',
-        '.article-content-wrapper',
-        'main article',
-        'main .content',
-        '#article-content',
-        '#article-body',
-        '#main-content',
-        '.article',
-        '.story',
-        '.post'
-      ];
+      // Site-specific selectors first for better accuracy
+      const urlLower = url.toLowerCase();
+      let contentSelectors = [];
+      
+      // Washington Post specific
+      if (urlLower.includes('washingtonpost.com')) {
+        contentSelectors = [
+          'article[itemprop="articleBody"]',
+          '.article-body',
+          '[data-module="ArticleBody"]',
+          '.article-content',
+          'article .body',
+          'article'
+        ];
+      }
+      // BBC specific
+      else if (urlLower.includes('bbc.com') || urlLower.includes('bbc.co.uk')) {
+        contentSelectors = [
+          'article[data-component="text-block"]',
+          '[data-component="text-block"]',
+          '.story-body',
+          'article',
+          '.article-body'
+        ];
+      }
+      // CNN specific
+      else if (urlLower.includes('cnn.com')) {
+        contentSelectors = [
+          '.article__content',
+          '.l-container',
+          'article',
+          '.zn-body__paragraph'
+        ];
+      }
+      // Reuters specific
+      else if (urlLower.includes('reuters.com')) {
+        contentSelectors = [
+          '[class*="ArticleBodyWrapper"]',
+          '.article-body',
+          'article'
+        ];
+      }
+      // TechCrunch specific
+      else if (urlLower.includes('techcrunch.com')) {
+        contentSelectors = [
+          '.article-content',
+          '.entry-content',
+          'article'
+        ];
+      }
+      // Generic selectors (fallback)
+      else {
+        contentSelectors = [
+          'article[itemprop="articleBody"]',
+          'article',
+          '[role="article"]',
+          '.article-content',
+          '.article-body',
+          '.post-content',
+          '.entry-content',
+          '.content',
+          '.story-body',
+          '.article-text',
+          '.article-main',
+          '.article-wrapper',
+          '.post-body',
+          '.entry-body',
+          '.story-content',
+          '.article-content-wrapper',
+          'main article',
+          'main .content',
+          '#article-content',
+          '#article-body',
+          '#main-content',
+          '.article',
+          '.story',
+          '.post'
+        ];
+      }
 
       let content = '';
       let bestContent = '';
@@ -111,15 +165,17 @@ class ArticleScraper {
       const paragraphs = $('p').filter((i, el) => {
         const text = $(el).text().trim();
         // Must have substantial text
-        if (text.length < 100) return false;
+        if (text.length < 50) return false;
         // Must not be navigation/footer text
         const lowerText = text.toLowerCase();
-        if (lowerText.match(/^(site search|search results|no results|symbols|authors|sections|columns|back to top|copyright|terms|privacy|cookie|archive|customer|contact|newsroom|virtual|guides|policy|notifications|subscription|company|dow jones|code|corrections|reprints|licensing|digital|ad choices|corporate|accessibility|network|intraday|historical|real-time|last sale|stock quotes|trades|nasdaq|delayed|marketwatch|wall street|barron|investor|financial news|realtor|mansion|smart money)/)) {
+        if (lowerText.match(/^(site search|search results|no results|symbols|authors|sections|columns|back to top|copyright|terms|privacy|cookie|archive|customer|contact|newsroom|virtual|guides|policy|notifications|subscription|company|dow jones|code|corrections|reprints|licensing|digital|ad choices|corporate|accessibility|network|intraday|historical|real-time|last sale|stock quotes|trades|nasdaq|delayed|marketwatch|wall street|barron|investor|financial news|realtor|mansion|smart money|subscribe|sign up|newsletter|follow us|share this|read more|related articles|you may also like)/)) {
           return false;
         }
         // Must have reasonable word count (not just numbers/symbols)
-        const words = text.split(/\s+/).filter(w => w.length > 2);
-        if (words.length < 10) return false;
+        const words = text.split(/\s+/).filter(w => w.length > 1);
+        if (words.length < 5) return false;
+        // Check if it's likely article content (has sentences)
+        if (!text.match(/[.!?]/)) return false;
         return true;
       });
       
@@ -264,16 +320,21 @@ class ArticleScraper {
 
       console.log(`📄 Fetching full content from: ${url.substring(0, 80)}...`);
 
-      // Fetch the article page
+      // Fetch the article page with better headers to avoid blocking
       const response = await axios.get(url, {
         timeout: this.timeout,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
           'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1'
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Cache-Control': 'max-age=0',
+          'Referer': 'https://www.google.com/'
         },
         maxRedirects: 5,
         validateStatus: (status) => status < 500 // Don't throw on 4xx errors
@@ -324,15 +385,25 @@ class ArticleScraper {
   async enhanceArticleContent(article) {
     const { url, content: currentContent, description } = article;
 
-    // If we already have enough content, return as is
+    // If we already have enough content, return as is (but clean it)
     if (currentContent && currentContent.length >= this.minContentLength) {
-      // Still clean up truncation indicators
-      return currentContent.replace(/\s*\.\.\.\s*\[\+\d+\s*chars?\]/gi, '').trim();
+      // Clean up all truncation indicators and notes
+      return currentContent
+        .replace(/\s*\.\.\.\s*\[\+\d+\s*chars?\]/gi, '')
+        .replace(/\s*\[Note:.*?\]/gi, '')
+        .replace(/\s*Source:\s*https?:\/\/[^\s]+/gi, '')
+        .replace(/\s*Read the full article at:\s*https?:\/\/[^\s]+/gi, '')
+        .trim();
     }
 
     // Prepare fallback content (use description if content is short)
     const fallback = currentContent || description || '';
-    const cleanedFallback = fallback.replace(/\s*\.\.\.\s*\[\+\d+\s*chars?\]/gi, '').trim();
+    const cleanedFallback = fallback
+      .replace(/\s*\.\.\.\s*\[\+\d+\s*chars?\]/gi, '')
+      .replace(/\s*\[Note:.*?\]/gi, '')
+      .replace(/\s*Source:\s*https?:\/\/[^\s]+/gi, '')
+      .replace(/\s*Read the full article at:\s*https?:\/\/[^\s]+/gi, '')
+      .trim();
 
     // If fallback is already long enough, return it
     if (cleanedFallback.length >= this.minContentLength) {
@@ -352,13 +423,21 @@ class ArticleScraper {
       }
     }
 
-    // If we still don't have enough, pad with a note
-    if (cleanedFallback.length < this.minContentLength && url) {
-      return cleanedFallback + '\n\n' + 
-        `[Note: This is a summary. Read the full article at: ${url}]`;
-    }
-
-    return cleanedFallback || 'No content available.';
+    // Clean up any remaining truncation indicators and notes
+    let finalContent = cleanedFallback;
+    
+    // Remove all truncation indicators
+    finalContent = finalContent
+      .replace(/\s*\.\.\.\s*\[\+\d+\s*chars?\]/gi, '')
+      .replace(/\s*\[Note:.*?\]/gi, '')
+      .replace(/\s*Source:.*?$/gmi, '')
+      .replace(/\s*Read the full article at:.*?$/gmi, '')
+      .replace(/\s*\[Read more.*?\]/gi, '')
+      .trim();
+    
+    // If we still don't have enough and have a URL, just return what we have
+    // Don't add notes - user wants clean content only
+    return finalContent || 'No content available.';
   }
 }
 

@@ -12,7 +12,9 @@ const apiUsageTracker = require('./apiUsageTracker');
 const rssParser = new Parser({
   customFields: {
     item: ['media:content', 'media:thumbnail', 'enclosure']
-  }
+  },
+  timeout: 10000, // 10 second timeout for RSS feeds
+  maxRedirects: 5
 });
 
 class NewsService {
@@ -24,7 +26,12 @@ class NewsService {
    * Fetch news from a specific provider
    */
   async fetchFromProvider(provider, options = {}) {
-    const { category = null, maxArticles = 10 } = options;
+    const { category = null, maxArticles = 10, hoursAgo = null } = options;
+    
+    // Skip provider if date filtering is required but not supported
+    if (hoursAgo !== null && hoursAgo > 0 && !provider.supportsDateFilter) {
+      throw new Error(`Provider ${provider.name} does not support date filtering`);
+    }
 
     try {
       // Check if provider has available requests
@@ -43,16 +50,21 @@ class NewsService {
 
       switch (provider.type) {
         case 'api':
-          articles = await this.fetchFromAPI(provider, category, maxArticles);
+          articles = await this.fetchFromAPI(provider, category, maxArticles, hoursAgo);
           break;
         case 'rss-aggregator':
-          articles = await this.fetchFromRSSAggregator(provider, category, maxArticles);
+          articles = await this.fetchFromRSSAggregator(provider, category, maxArticles, hoursAgo);
           break;
         case 'rss-direct':
-          articles = await this.fetchFromRSSFeeds(provider, category, maxArticles);
+          articles = await this.fetchFromRSSFeeds(provider, category, maxArticles, hoursAgo);
           break;
         default:
           throw new Error(`Unknown provider type: ${provider.type}`);
+      }
+
+      // Ensure articles is an array
+      if (!Array.isArray(articles)) {
+        articles = [];
       }
 
       // Increment usage counter
@@ -61,7 +73,7 @@ class NewsService {
       }
 
       return {
-        success: true,
+        success: articles.length > 0,
         provider: provider.name,
         articles,
         count: articles.length
@@ -80,13 +92,24 @@ class NewsService {
   /**
    * Fetch news from API provider (NewsAPI, NewsData, etc.)
    */
-  async fetchFromAPI(provider, category, maxArticles) {
+  async fetchFromAPI(provider, category, maxArticles, hoursAgo = null) {
     const articles = [];
     
+    // Calculate date range if hoursAgo is specified
+    let fromDate = null;
+    if (hoursAgo !== null && hoursAgo > 0) {
+      fromDate = new Date();
+      fromDate.setHours(fromDate.getHours() - hoursAgo);
+    }
+    
     // NewsAPI.org: Use /top-headlines for categories, /everything for general search
+    // BUT: /top-headlines doesn't support date filtering, so use /everything if date filtering is needed
     let endpoint;
     if (provider.name === 'NewsAPI.org') {
-      if (category && category !== 'GENERAL') {
+      if (fromDate && provider.supportsDateFilter) {
+        // Must use /everything endpoint for date filtering (top-headlines doesn't support it)
+        endpoint = provider.endpoints.everything;
+      } else if (category && category !== 'GENERAL') {
         endpoint = provider.endpoints.topHeadlines;
       } else {
         endpoint = provider.endpoints.everything;
@@ -101,6 +124,25 @@ class NewsService {
       ...provider.params
     };
 
+    // Add date filtering if supported and hoursAgo is specified
+    // Note: NewsAPI free tier may not support real-time date filtering well
+    // We'll fetch without date filter and filter after to ensure we get results
+    if (fromDate && provider.supportsDateFilter) {
+      if (provider.name === 'NewsAPI.org') {
+        // NewsAPI free tier works better without strict date filtering
+        // We'll fetch recent articles and filter by date after
+        // Just set a broad date range (last 7 days) to get recent articles
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        params.from = weekAgo.toISOString().split('T')[0]; // YYYY-MM-DD format
+        params.to = new Date().toISOString().split('T')[0];
+        console.log(`📅 NewsAPI: Fetching from last 7 days, will filter to last ${hoursAgo} hours`);
+      } else if (provider.name === 'NewsData.io') {
+        // NewsData.io doesn't have a simple date parameter for recent articles
+        // We'll fetch and filter after instead
+      }
+    }
+
     // Set API key based on provider format
     if (provider.name === 'NewsData.io') {
       params.apikey = provider.apiKey; // NewsData uses 'apikey' not 'apiKey'
@@ -110,13 +152,14 @@ class NewsService {
       params.apiKey = provider.apiKey; // NewsAPI, Currents use 'apiKey'
     }
 
-    // Set page size
+    // Set page size - fetch more articles to account for date filtering
+    const fetchLimit = fromDate ? maxArticles * 5 : maxArticles; // Fetch 5x more if filtering by date
     if (provider.name === 'NewsData.io') {
-      params.size = Math.min(maxArticles, provider.requestsPerCall || 10);
+      params.size = Math.min(fetchLimit, provider.requestsPerCall || 10);
     } else if (provider.name === 'GNews API') {
-      params.max = Math.min(maxArticles, provider.requestsPerCall || 10);
+      params.max = Math.min(fetchLimit, provider.requestsPerCall || 10);
     } else {
-      params.pageSize = Math.min(maxArticles, provider.requestsPerCall || 10);
+      params.pageSize = Math.min(fetchLimit, provider.requestsPerCall || 100);
     }
 
     // Add category if specified
@@ -140,23 +183,25 @@ class NewsService {
           };
           params.category = categoryMap[category] || 'general';
         } else {
-          // For /everything, use q parameter for search
+          // For /everything, use q parameter for search (REQUIRED for /everything endpoint)
+          // NewsAPI supports: keywords, OR operators, quotes for exact phrases
+          // Using simple, common keywords for better matching
           const searchTerms = {
-            'DEFI': 'defi OR decentralized finance OR cryptocurrency OR bitcoin',
-            'TECHNOLOGY': 'technology OR tech OR software',
-            'FINANCE': 'finance OR financial OR banking',
-            'BUSINESS': 'business OR company OR corporate',
-            'POLITICS': 'politics OR government OR election',
-            'SPORT': 'sports OR football OR basketball',
-            'ENTERTAINMENT': 'entertainment OR movie OR music',
-            'HEALTH': 'health OR medical OR healthcare',
-            'SCIENCE': 'science OR research OR discovery',
-            'WEATHER': 'weather OR climate',
-            'OTHERS': null
+            'DEFI': 'bitcoin',
+            'TECHNOLOGY': 'technology',
+            'FINANCE': 'finance',
+            'BUSINESS': 'business',
+            'POLITICS': 'politics',
+            'SPORT': 'sports',
+            'ENTERTAINMENT': 'entertainment',
+            'HEALTH': 'health',
+            'SCIENCE': 'science',
+            'WEATHER': 'weather',
+            'OTHERS': 'news'
           };
-          if (searchTerms[category]) {
-            params.q = searchTerms[category];
-          }
+          // Always set q parameter for /everything endpoint (it's required)
+          params.q = searchTerms[category] || 'news';
+          console.log(`🔍 NewsAPI query: q="${params.q}"`);
         }
       } else if (provider.name === 'NewsData.io') {
         // NewsData.io category mapping
@@ -229,19 +274,59 @@ class NewsService {
 
       if (response.data && response.data.articles) {
         // NewsAPI format
-        articles.push(...response.data.articles.slice(0, maxArticles));
+        articles.push(...response.data.articles);
       } else if (response.data && response.data.results) {
         // NewsData.io format
-        articles.push(...response.data.results.slice(0, maxArticles));
+        articles.push(...response.data.results);
       } else if (response.data && response.data.news) {
         // Currents API format
-        articles.push(...response.data.news.slice(0, maxArticles));
+        articles.push(...response.data.news);
       } else if (response.data && Array.isArray(response.data)) {
         // Direct array format
-        articles.push(...response.data.slice(0, maxArticles));
+        articles.push(...response.data);
       }
 
-      return this.normalizeAPIArticles(articles, provider.name);
+      // Debug: Log if no articles found
+      if (articles.length === 0) {
+        console.log(`⚠️  No articles in response from ${provider.name}. Response keys: ${Object.keys(response.data || {}).join(', ')}`);
+        if (provider.name === 'NewsAPI.org' && response.data) {
+          console.log(`   NewsAPI status: ${response.data.status}, totalResults: ${response.data.totalResults || 0}`);
+        }
+      }
+
+      // Normalize articles first
+      const normalized = this.normalizeAPIArticles(articles, provider.name);
+      
+      // Filter by date if hoursAgo is specified (post-fetch filtering)
+      // Always do post-fetch filtering to ensure accuracy
+      let finalArticles = normalized;
+      if (fromDate && this._currentHoursAgo) {
+        const now = new Date();
+        const hoursAgoValue = this._currentHoursAgo;
+        finalArticles = normalized.filter(article => {
+          if (!article.publishedAt) return false;
+          try {
+            const pubDate = new Date(article.publishedAt);
+            if (isNaN(pubDate.getTime())) return false;
+            // Check if article is within the time window
+            const hoursDiff = (now - pubDate) / (1000 * 60 * 60);
+            return hoursDiff <= hoursAgoValue && hoursDiff >= 0;
+          } catch (error) {
+            return false;
+          }
+        });
+        
+        if (finalArticles.length === 0 && normalized.length > 0) {
+          const oldest = normalized[normalized.length - 1]?.publishedAt;
+          const newest = normalized[0]?.publishedAt;
+          console.log(`⚠️  All ${normalized.length} articles filtered out (too old).`);
+          if (oldest) console.log(`   Oldest article: ${oldest} (${Math.round((now - new Date(oldest)) / (1000 * 60 * 60))} hours ago)`);
+          if (newest) console.log(`   Newest article: ${newest} (${Math.round((now - new Date(newest)) / (1000 * 60 * 60))} hours ago)`);
+        }
+      }
+
+      // Limit to maxArticles after filtering
+      return finalArticles.slice(0, maxArticles);
     } catch (error) {
       if (error.response) {
         // API returned an error
@@ -260,13 +345,13 @@ class NewsService {
   /**
    * Fetch news from RSS aggregator (RSS2JSON, FeedAPI)
    */
-  async fetchFromRSSAggregator(provider, category, maxArticles) {
+  async fetchFromRSSAggregator(provider, category, maxArticles, hoursAgo = null) {
     const articles = [];
     
     // Use direct RSS feeds if aggregator fails
     const rssProvider = getProvider('rssFeeds');
     if (rssProvider && rssProvider.enabled) {
-      return this.fetchFromRSSFeeds(rssProvider, category, maxArticles);
+      return this.fetchFromRSSFeeds(rssProvider, category, maxArticles, hoursAgo);
     }
 
     return articles;
@@ -275,9 +360,16 @@ class NewsService {
   /**
    * Fetch news from direct RSS feeds
    */
-  async fetchFromRSSFeeds(provider, category, maxArticles) {
+  async fetchFromRSSFeeds(provider, category, maxArticles, hoursAgo = null) {
     const articles = [];
     const feeds = provider.feeds || [];
+
+    // Calculate date threshold if hoursAgo is specified
+    let fromDate = null;
+    if (hoursAgo !== null && hoursAgo > 0) {
+      fromDate = new Date();
+      fromDate.setHours(fromDate.getHours() - hoursAgo);
+    }
 
     // Filter feeds by category if specified
     const relevantFeeds = category
@@ -289,8 +381,50 @@ class NewsService {
 
     for (const feed of feedsToProcess) {
       try {
-        const feedData = await rssParser.parseURL(feed.url);
-        const feedArticles = feedData.items.slice(0, Math.ceil(maxArticles / feedsToProcess.length));
+        // Add timeout and retry logic for RSS feeds
+        let feedData;
+        let retries = 2;
+        let lastError;
+        
+        while (retries > 0) {
+          try {
+            feedData = await Promise.race([
+              rssParser.parseURL(feed.url),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('RSS feed timeout')), 10000)
+              )
+            ]);
+            break; // Success, exit retry loop
+          } catch (error) {
+            lastError = error;
+            retries--;
+            if (retries > 0) {
+              console.log(`⚠️  Retrying RSS feed ${feed.name || feed.url}... (${retries} retries left)`);
+              await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+            }
+          }
+        }
+        
+        if (!feedData) {
+          throw lastError || new Error('Failed to fetch RSS feed');
+        }
+        
+        let feedArticles = feedData.items;
+
+        // Filter by date if specified
+        if (fromDate) {
+          feedArticles = feedArticles.filter(item => {
+            if (!item.pubDate) return false;
+            const pubDate = new Date(item.pubDate);
+            return pubDate >= fromDate;
+          });
+        }
+
+        // Only limit if maxArticles is reasonable (not unlimited)
+        if (maxArticles < 1000) {
+          feedArticles = feedArticles.slice(0, Math.ceil(maxArticles / feedsToProcess.length));
+        }
+        // If maxArticles is 1000+, fetch all articles from the feed
 
         for (const item of feedArticles) {
           const description = item.contentSnippet || item.description || '';
@@ -324,12 +458,27 @@ class NewsService {
           });
         }
       } catch (error) {
-        console.error(`Error parsing RSS feed ${feed.name}:`, error.message);
+        const feedName = feed.name || feed.url || 'Unknown';
+        if (error.message.includes('timeout') || error.message.includes('socket') || error.message.includes('TLS')) {
+          console.log(`⚠️  RSS feed ${feedName} connection error (timeout/SSL): ${error.message}`);
+        } else {
+          console.error(`Error parsing RSS feed ${feedName}:`, error.message);
+        }
         // Continue with other feeds
+      }
+      
+      // Add delay between RSS feed requests to avoid overwhelming servers
+      if (feedsToProcess.indexOf(feed) < feedsToProcess.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
       }
     }
 
-    return articles.slice(0, maxArticles);
+    // Only limit if maxArticles is reasonable (not unlimited)
+    if (maxArticles < 1000) {
+      return articles.slice(0, maxArticles);
+    }
+    // If maxArticles is 1000+, return all articles
+    return articles;
   }
 
   /**
@@ -380,7 +529,19 @@ class NewsService {
       }
 
       // Extract author from various possible fields
-      const author = article.author || article.byline || article.creator || article.writer || null;
+      let author = article.author || article.byline || article.creator || article.writer || null;
+      
+      // Handle author if it's an object (some APIs return author as {name: "...", ...})
+      if (author && typeof author === 'object') {
+        author = author.name || author.author || author.byline || null;
+      }
+      
+      // Clean author string
+      if (author && typeof author === 'string') {
+        author = author.trim();
+      } else {
+        author = null;
+      }
       
       const normalized = {
         title: article.title || article.headline || '',
@@ -389,7 +550,7 @@ class NewsService {
         url: url,
         imageUrl: article.urlToImage || article.image || article.thumbnail || null,
         publishedAt: article.publishedAt ? new Date(article.publishedAt) : (article.pubDate ? new Date(article.pubDate) : new Date()),
-        author: author ? author.trim() : null,
+        author: author,
         sourceName: article.source?.name || article.source || providerName,
         sourceUrl: url,
         category: this.detectCategory(article.title || '', description)
@@ -464,20 +625,105 @@ class NewsService {
    * Tries providers in priority order until one succeeds
    */
   async fetchNews(options = {}) {
-    const { category = null, maxArticles = 10 } = options;
+    const { category = null, maxArticles = 10, articlesPerProvider = null, hoursAgo = 6 } = options;
     const providers = getProvidersByPriority();
 
+    // If articlesPerProvider is specified (or null for unlimited), fetch from ALL providers
+    if (articlesPerProvider === null || articlesPerProvider > 0) {
+      const allArticles = [];
+      const successfulProviders = [];
+      const skippedProviders = [];
+
+      for (const provider of providers) {
+        console.log(`🔄 Trying provider: ${provider.name}...`);
+
+        try {
+          // Skip providers that don't support date filtering if hoursAgo is specified
+          if (hoursAgo && hoursAgo > 0 && !provider.supportsDateFilter) {
+            console.log(`⏭️  Skipping ${provider.name} (does not support date filtering)`);
+            skippedProviders.push(provider.name);
+            continue;
+          }
+
+          // If articlesPerProvider is null, use a high limit to fetch all articles
+          const providerMaxArticles = articlesPerProvider === null ? 1000 : articlesPerProvider;
+          
+          const result = await this.fetchFromProvider(provider, { 
+            category, 
+            maxArticles: providerMaxArticles,
+            hoursAgo: hoursAgo
+          });
+
+          if (result.success && result.articles.length > 0) {
+            console.log(`✅ Successfully fetched ${result.articles.length} articles from ${provider.name}`);
+            allArticles.push(...result.articles);
+            successfulProviders.push(provider.name);
+          } else {
+            console.log(`❌ Failed to fetch from ${provider.name}: ${result.error || 'No articles returned'}`);
+          }
+        } catch (error) {
+          if (error.message.includes('does not support date filtering')) {
+            console.log(`⏭️  Skipping ${provider.name} (does not support date filtering)`);
+            skippedProviders.push(provider.name);
+          } else {
+            console.log(`❌ Error fetching from ${provider.name}: ${error.message}`);
+          }
+        }
+
+        // Small delay between providers
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      if (allArticles.length > 0) {
+        return {
+          success: true,
+          provider: successfulProviders.join(', '),
+          articles: allArticles,
+          count: allArticles.length,
+          skippedProviders: skippedProviders
+        };
+      } else {
+        return {
+          success: false,
+          provider: 'all',
+          error: 'All providers failed',
+          articles: [],
+          skippedProviders: skippedProviders
+        };
+      }
+    }
+
+    // Original behavior: try providers in priority order until one succeeds
     for (const provider of providers) {
+      // Skip providers that don't support date filtering if hoursAgo is specified
+      if (hoursAgo && hoursAgo > 0 && !provider.supportsDateFilter) {
+        console.log(`⏭️  Skipping ${provider.name} (does not support date filtering)`);
+        continue;
+      }
+
       console.log(`🔄 Trying provider: ${provider.name}...`);
 
-      const result = await this.fetchFromProvider(provider, { category, maxArticles });
+      try {
+        const result = await this.fetchFromProvider(provider, { 
+          category, 
+          maxArticles,
+          hoursAgo: hoursAgo
+        });
 
-      if (result.success && result.articles.length > 0) {
-        console.log(`✅ Successfully fetched ${result.articles.length} articles from ${provider.name}`);
-        return result;
-      } else {
-        console.log(`❌ Failed to fetch from ${provider.name}: ${result.error || 'No articles returned'}`);
-        // Continue to next provider
+        if (result.success && result.articles.length > 0) {
+          console.log(`✅ Successfully fetched ${result.articles.length} articles from ${provider.name}`);
+          return result;
+        } else {
+          console.log(`❌ Failed to fetch from ${provider.name}: ${result.error || 'No articles returned'}`);
+          // Continue to next provider
+        }
+      } catch (error) {
+        if (error.message.includes('does not support date filtering')) {
+          console.log(`⏭️  Skipping ${provider.name} (does not support date filtering)`);
+          continue;
+        } else {
+          console.log(`❌ Error fetching from ${provider.name}: ${error.message}`);
+        }
       }
     }
 

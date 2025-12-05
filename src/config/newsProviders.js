@@ -1,217 +1,215 @@
 /**
- * News Provider Configuration
- * Defines all news APIs and RSS feeds with priorities, rate limits, and fallback order
+ * News Providers Configuration
+ * Defines all news providers with their configurations, priorities, and category mappings
  */
 
-const newsProviders = {
-  // Priority 1: Paid APIs (highest priority)
-  newsapi: {
+const providers = [
+  // Priority 1: NewsAPI.org (Disabled - Using RSS feeds only)
+  {
     name: 'NewsAPI.org',
     type: 'api',
     priority: 1,
-    enabled: process.env.NEWSAPI_KEY ? true : false,
-    apiKey: process.env.NEWSAPI_KEY || null,
+    enabled: false, // Disabled - Using RSS feeds only
+    apiKey: process.env.NEWSAPI_KEY || '',
     baseUrl: 'https://newsapi.org/v2',
-    dailyLimit: process.env.NEWSAPI_LIMIT ? parseInt(process.env.NEWSAPI_LIMIT) : 100,
-    requestsPerCall: 100, // Max articles per request
+    dailyLimit: parseInt(process.env.NEWSAPI_LIMIT) || 1000,
+    requestsPerCall: 100,
+    supportsDateFilter: true, // Supports 'from' and 'to' parameters
     endpoints: {
-      everything: '/everything',
       topHeadlines: '/top-headlines',
-      sources: '/sources'
+      everything: '/everything'
     },
     params: {
-      language: 'en',
+      apiKey: process.env.NEWSAPI_KEY || '',
       sortBy: 'publishedAt',
-      pageSize: 100
+      language: 'en'
     },
-    sources: ['cnn', 'bbc-news', 'reuters', 'techcrunch', 'the-guardian-uk', 'the-verge'],
-    category: 'general'
+    categoryMap: {
+      'DEFI': 'technology',
+      'TECHNOLOGY': 'technology',
+      'FINANCE': 'business',
+      'BUSINESS': 'business',
+      'POLITICS': 'general',
+      'SPORT': 'sports',
+      'ENTERTAINMENT': 'entertainment',
+      'HEALTH': 'health',
+      'SCIENCE': 'science',
+      'WEATHER': 'general',
+      'OTHERS': 'general'
+    }
   },
 
-  newsdata: {
+  // Priority 2: NewsData.io (Disabled - Using RSS feeds only)
+  {
     name: 'NewsData.io',
     type: 'api',
     priority: 2,
-    enabled: process.env.NEWSDATA_KEY ? true : false,
-    apiKey: process.env.NEWSDATA_KEY || null,
+    enabled: false, // Disabled - Using RSS feeds only
+    apiKey: process.env.NEWSDATA_KEY || '',
     baseUrl: 'https://newsdata.io/api/1',
-    dailyLimit: process.env.NEWSDATA_LIMIT ? parseInt(process.env.NEWSDATA_LIMIT) : 200,
-    requestsPerCall: 10, // Max articles per request
+    dailyLimit: parseInt(process.env.NEWSDATA_LIMIT) || 200,
+    requestsPerCall: 10,
+    supportsDateFilter: true, // Supports date filtering
     endpoints: {
-      news: '/news',
-      latest: '/latest',
-      archive: '/archive'
+      latest: '/latest'
     },
     params: {
-      language: 'en',
-      category: 'technology,entertainment,sports,business'
+      apikey: process.env.NEWSDATA_KEY || '',
+      language: 'en'
     },
-    category: 'general'
+    categoryMap: {
+      'DEFI': 'technology',
+      'TECHNOLOGY': 'technology',
+      'FINANCE': 'business',
+      'BUSINESS': 'business',
+      'POLITICS': 'top',
+      'SPORT': 'sports',
+      'ENTERTAINMENT': 'entertainment',
+      'HEALTH': 'health',
+      'SCIENCE': 'science',
+      'WEATHER': 'top',
+      'OTHERS': 'top'
+    }
   },
 
-  currents: {
+  // Priority 3: Currents API (Disabled - Using RSS feeds only)
+  {
     name: 'Currents API',
     type: 'api',
     priority: 3,
-    enabled: process.env.CURRENTS_API_KEY ? true : false,
-    apiKey: process.env.CURRENTS_API_KEY || null,
+    enabled: false, // Disabled - Using RSS feeds only
+    apiKey: process.env.CURRENTS_API_KEY || '',
     baseUrl: 'https://api.currentsapi.services/v1',
-    dailyLimit: process.env.CURRENTS_LIMIT ? parseInt(process.env.CURRENTS_LIMIT) : 20,
-    requestsPerCall: 50,
+    dailyLimit: parseInt(process.env.CURRENTS_LIMIT) || 20,
+    requestsPerCall: 20,
+    supportsDateFilter: false, // Does not support date filtering
     endpoints: {
-      latest: '/latest-news',
-      search: '/search',
-      categories: '/available/categories'
+      latest: '/latest-news'
     },
     params: {
-      language: 'en',
-      apiKey: null // Will be set from apiKey
+      apiKey: process.env.CURRENTS_API_KEY || '',
+      language: 'en'
     },
-    category: 'general'
+    categoryMap: {
+      'DEFI': 'technology',
+      'TECHNOLOGY': 'technology',
+      'FINANCE': 'business',
+      'BUSINESS': 'business',
+      'POLITICS': null,
+      'SPORT': 'sports',
+      'ENTERTAINMENT': 'entertainment',
+      'HEALTH': 'health',
+      'SCIENCE': 'science',
+      'WEATHER': null,
+      'OTHERS': null
+    }
   },
 
-  gnews: {
+  // Priority 4: GNews API (Disabled - Using RSS feeds only)
+  {
     name: 'GNews API',
     type: 'api',
     priority: 4,
-    enabled: process.env.GNEWS_API_KEY ? true : false,
-    apiKey: process.env.GNEWS_API_KEY || null,
+    enabled: false, // Disabled - Using RSS feeds only
+    apiKey: process.env.GNEWS_API_KEY || '',
     baseUrl: 'https://gnews.io/api/v4',
-    dailyLimit: process.env.GNEWS_LIMIT ? parseInt(process.env.GNEWS_LIMIT) : 100,
+    dailyLimit: parseInt(process.env.GNEWS_LIMIT) || 100,
     requestsPerCall: 10,
+    supportsDateFilter: false, // Does not support date filtering
     endpoints: {
       topHeadlines: '/top-headlines',
       search: '/search'
     },
     params: {
+      token: process.env.GNEWS_API_KEY || '',
       lang: 'en',
-      max: 10,
-      token: null // Will be set from apiKey
+      country: 'us'
     },
-    category: 'general'
+    categoryMap: {
+      'DEFI': 'technology',
+      'TECHNOLOGY': 'technology',
+      'FINANCE': 'business',
+      'BUSINESS': 'business',
+      'POLITICS': 'general',
+      'SPORT': 'sports',
+      'ENTERTAINMENT': 'entertainment',
+      'HEALTH': 'health',
+      'SCIENCE': 'science',
+      'WEATHER': 'general',
+      'OTHERS': 'general'
+    }
   },
 
-  // Priority 5: Free API Aggregators
-  rss2json: {
-    name: 'RSS2JSON',
+  // Priority 5: RSS Aggregators (RSS2JSON, FeedAPI) - Disabled, using direct RSS feeds only
+  {
+    name: 'RSS Aggregators',
     type: 'rss-aggregator',
     priority: 5,
-    enabled: true, // Always enabled (free tier)
-    apiKey: process.env.RSS2JSON_API_KEY || null, // Optional for paid tier
-    baseUrl: 'https://api.rss2json.com/v1/api.json',
-    dailyLimit: process.env.RSS2JSON_LIMIT ? parseInt(process.env.RSS2JSON_LIMIT) : 1000,
+    enabled: false, // Disabled - using direct RSS feeds (rssFeeds) instead
+    apiKey: process.env.RSS2JSON_API_KEY || process.env.FEEDAPI_KEY || '',
+    baseUrl: process.env.RSS2JSON_API_KEY 
+      ? 'https://api.rss2json.com/v1/api.json'
+      : 'https://api.feedapi.io/v1',
+    dailyLimit: parseInt(process.env.RSS2JSON_LIMIT || process.env.FEEDAPI_LIMIT) || 1000,
     requestsPerCall: 10,
-    params: {
-      api_key: process.env.RSS2JSON_API_KEY || null,
-      count: 10
-    },
-    category: 'general'
+    supportsDateFilter: true // Can filter by pubDate after fetching
   },
 
-  feedapi: {
-    name: 'FeedAPI',
-    type: 'rss-aggregator',
-    priority: 6,
-    enabled: true, // Always enabled (free tier)
-    apiKey: process.env.FEEDAPI_KEY || null, // Optional for paid tier
-    baseUrl: 'https://api.feedapi.org/v1',
-    dailyLimit: process.env.FEEDAPI_LIMIT ? parseInt(process.env.FEEDAPI_LIMIT) : 1000,
-    requestsPerCall: 10,
-    endpoints: {
-      parse: '/parse'
-    },
-    params: {
-      api_key: process.env.FEEDAPI_KEY || null
-    },
-    category: 'general'
-  },
-
-  // Priority 7: Direct RSS Feeds (always available, no limits)
-  rssFeeds: {
-    name: 'Direct RSS Feeds',
+  // Priority 6: Direct RSS Feeds (Always available, no limits)
+  {
+    name: 'rssFeeds',
     type: 'rss-direct',
-    priority: 7,
-    enabled: true, // Always enabled
-    dailyLimit: Infinity, // No limits
-    requestsPerCall: 50,
+    priority: 6,
+    enabled: true,
+    dailyLimit: Infinity,
+    supportsDateFilter: true, // Can filter by pubDate after fetching
     feeds: [
-      {
-        name: 'CNN',
-        url: 'https://www.cnn.com/rss/edition.rss',
-        category: 'GENERAL',
-        sourceName: 'CNN'
-      },
-      {
-        name: 'CNN Top Stories',
-        url: 'https://www.cnn.com/rss/edition.rss',
-        category: 'OTHERS',
-        sourceName: 'CNN'
-      },
-      {
-        name: 'BBC News',
-        url: 'https://feeds.bbci.co.uk/news/rss.xml',
-        category: 'OTHERS',
-        sourceName: 'BBC'
-      },
-      {
-        name: 'BBC Technology',
-        url: 'https://feeds.bbci.co.uk/news/technology/rss.xml',
-        category: 'TECHNOLOGY', // Technology news
-        sourceName: 'BBC'
-      },
-      {
-        name: 'Reuters',
-        url: 'https://www.reuters.com/rssFeed/worldNews',
-        category: 'OTHERS',
-        sourceName: 'Reuters'
-      },
-      {
-        name: 'Reuters Technology',
-        url: 'https://www.reuters.com/rssFeed/technologyNews',
-        category: 'TECHNOLOGY',
-        sourceName: 'Reuters'
-      },
-      {
-        name: 'TechCrunch',
-        url: 'https://techcrunch.com/feed/',
-        category: 'TECHNOLOGY',
-        sourceName: 'TechCrunch'
-      },
-      {
-        name: 'The Guardian',
-        url: 'https://www.theguardian.com/world/rss',
-        category: 'OTHERS',
-        sourceName: 'The Guardian'
-      },
-      {
-        name: 'The Verge',
-        url: 'https://www.theverge.com/rss/index.xml',
-        category: 'TECHNOLOGY',
-        sourceName: 'The Verge'
-      },
-      {
-        name: 'ESPN',
-        url: 'https://www.espn.com/espn/rss/news',
-        category: 'SPORTS',
-        sourceName: 'ESPN'
-      },
-      {
-        name: 'Entertainment Weekly',
-        url: 'https://ew.com/feed/',
-        category: 'ENTERTAINMENT',
-        sourceName: 'Entertainment Weekly'
-      }
-    ],
-    category: 'general'
+      // DEFI/Cryptocurrency - Using crypto/cryptocurrency feeds that cover defi topics
+      // These feeds will pick up articles about cryptocurrency, bitcoin, defi, blockchain, etc.
+      { url: 'https://cointelegraph.com/rss', sourceName: 'CoinTelegraph', category: 'DEFI' },
+      { url: 'https://feeds.bbci.co.uk/news/technology/rss.xml', sourceName: 'BBC Technology', category: 'DEFI' },
+      { url: 'https://techcrunch.com/feed/', sourceName: 'TechCrunch', category: 'DEFI' },
+      { url: 'https://feeds.bbci.co.uk/news/business/rss.xml', sourceName: 'BBC Business', category: 'DEFI' },
+      
+      // Technology
+      { url: 'https://feeds.bbci.co.uk/news/technology/rss.xml', sourceName: 'BBC Technology', category: 'TECHNOLOGY' },
+      { url: 'https://techcrunch.com/feed/', sourceName: 'TechCrunch', category: 'TECHNOLOGY' },
+      
+      // Business/Finance
+      { url: 'https://feeds.bbci.co.uk/news/business/rss.xml', sourceName: 'BBC Business', category: 'BUSINESS' },
+      { url: 'https://feeds.bbci.co.uk/news/business/rss.xml', sourceName: 'BBC Business', category: 'FINANCE' },
+      
+      // Politics
+      { url: 'https://feeds.bbci.co.uk/news/politics/rss.xml', sourceName: 'BBC Politics', category: 'POLITICS' },
+      
+      // Sports
+      { url: 'https://feeds.bbci.co.uk/sport/rss.xml', sourceName: 'BBC Sport', category: 'SPORT' },
+      { url: 'https://www.espn.com/espn/rss/news', sourceName: 'ESPN', category: 'SPORT' },
+      
+      // Entertainment
+      { url: 'https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml', sourceName: 'BBC Entertainment', category: 'ENTERTAINMENT' },
+      
+      // NOTE: HEALTH and SCIENCE categories removed from RSS feeds as requested
+      // These categories will not be fetched via RSS feeds
+      
+      // General/Others
+      { url: 'https://feeds.bbci.co.uk/news/rss.xml', sourceName: 'BBC News', category: 'OTHERS' },
+      { url: 'https://www.theguardian.com/world/rss', sourceName: 'The Guardian', category: 'OTHERS' }
+      
+      // NOTE: CNN and Reuters feeds removed due to connection issues:
+      // - CNN: SSL/TLS connection errors (all feeds failing)
+      // - Reuters: DNS errors (feeds.reuters.com not resolving)
+      // These can be re-added if the issues are resolved or alternative URLs are found
+    ]
   }
-};
+];
 
 /**
- * Get providers sorted by priority (lowest number = highest priority)
+ * Get all providers sorted by priority
  */
 function getProvidersByPriority() {
-  return Object.values(newsProviders)
-    .filter(provider => provider.enabled)
+  return providers
+    .filter(p => p.enabled)
     .sort((a, b) => a.priority - b.priority);
 }
 
@@ -219,20 +217,19 @@ function getProvidersByPriority() {
  * Get a specific provider by name
  */
 function getProvider(name) {
-  return newsProviders[name];
+  return providers.find(p => p.name === name || p.name.toLowerCase() === name.toLowerCase());
 }
 
 /**
  * Get all enabled providers
  */
 function getEnabledProviders() {
-  return Object.values(newsProviders).filter(provider => provider.enabled);
+  return providers.filter(p => p.enabled);
 }
 
 module.exports = {
-  newsProviders,
+  providers,
   getProvidersByPriority,
   getProvider,
   getEnabledProviders
 };
-

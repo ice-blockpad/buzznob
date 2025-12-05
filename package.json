@@ -24,7 +24,9 @@
     "db:force-seed": "set FORCE_SEED=true && node src/scripts/initDatabase.js",
     "manage-admin": "node src/scripts/manageAdmin.js",
     "news:fetch": "node src/scripts/fetchAndPostNews.js",
-    "news:fetch:dry-run": "node src/scripts/fetchAndPostNews.js --dry-run"
+    "news:fetch:dry-run": "node src/scripts/fetchAndPostNews.js --dry-run",
+    "news:test-rss": "node src/scripts/testRSSFeeds.js",
+    "news:test-rss-recent": "node src/scripts/testRSSFeedsRecent.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.490.0",

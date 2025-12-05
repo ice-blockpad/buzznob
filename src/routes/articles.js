@@ -43,6 +43,8 @@ router.get('/trending', optionalAuth, async (req, res) => {
           imageData: true,
           imageType: true,
           createdAt: true,
+          originalAuthor: true,
+          originalPublishedAt: true,
           author: {
             select: {
               id: true,
@@ -134,6 +136,8 @@ router.get('/featured', optionalAuth, async (req, res) => {
           imageData: true,
           imageType: true,
           createdAt: true,
+          originalAuthor: true,
+          originalPublishedAt: true,
           author: {
             select: {
               id: true,
@@ -238,6 +242,8 @@ router.get('/', optionalAuth, async (req, res) => {
           imageData: true,
           imageType: true,
           createdAt: true,
+          originalAuthor: true,
+          originalPublishedAt: true,
           author: {
             select: {
               id: true,
@@ -270,6 +276,8 @@ router.get('/', optionalAuth, async (req, res) => {
           imageData: true,
           imageType: true,
           createdAt: true,
+          originalAuthor: true,
+          originalPublishedAt: true,
           author: {
             select: {
               id: true,
@@ -431,6 +439,8 @@ router.get('/search', optionalAuth, async (req, res) => {
         imageData: true,
         imageType: true,
         createdAt: true,
+        originalAuthor: true,
+        originalPublishedAt: true,
         author: {
           select: {
             id: true,
@@ -463,6 +473,8 @@ router.get('/search', optionalAuth, async (req, res) => {
           imageData: true,
           imageType: true,
           createdAt: true,
+          originalAuthor: true,
+          originalPublishedAt: true,
           author: {
             select: {
               id: true,
@@ -623,7 +635,9 @@ router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
           imageType: true,
           status: true,
           createdAt: true,
-          publishedAt: true
+          publishedAt: true,
+          originalAuthor: true,
+          originalPublishedAt: true
         }
       });
     } else {
@@ -648,7 +662,9 @@ router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
           imageType: true,
           status: true,
           createdAt: true,
-          publishedAt: true
+          publishedAt: true,
+          originalAuthor: true,
+          originalPublishedAt: true
         }
       });
       totalCount = await prisma.article.count({ where: baseWhere });
@@ -708,6 +724,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
         imageType: true,
         createdAt: true,
         originalAuthor: true,
+        originalPublishedAt: true,
         author: {
           select: {
             id: true,

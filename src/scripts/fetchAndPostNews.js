@@ -15,14 +15,17 @@ const apiUsageTracker = require('../services/apiUsageTracker');
  */
 async function fetchAndPostNews(options = {}) {
   const {
-    categories = ['DEFI', 'FINANCE', 'POLITICS', 'SPORT', 'ENTERTAINMENT', 'WEATHER', 'TECHNOLOGY', 'BUSINESS', 'HEALTH', 'SCIENCE', 'OTHERS'],
-    maxArticlesPerCategory = 5,
+    categories = ['DEFI', 'FINANCE', 'POLITICS', 'SPORT', 'ENTERTAINMENT', 'WEATHER', 'TECHNOLOGY', 'BUSINESS', 'OTHERS'], // HEALTH and SCIENCE removed - not using RSS for these
+    maxArticlesPerCategory = 1000, // Fetch all articles within time window
+    articlesPerProvider = null, // No limit - fetch all articles from each provider
     dryRun = false
   } = options;
 
   console.log('\n🚀 Starting news automation...');
   console.log(`📋 Categories: ${categories.join(', ')}`);
-  console.log(`📊 Max articles per category: ${maxArticlesPerCategory}`);
+  console.log(`📊 Max articles per category: ${maxArticlesPerCategory} (all within time window)`);
+  console.log(`📰 Articles per provider: Unlimited (all within time window)`);
+  console.log(`⏰ Time filter: Last 6 hours only`);
   console.log(`🔍 Dry run: ${dryRun ? 'YES' : 'NO'}\n`);
 
   try {
@@ -39,14 +42,19 @@ async function fetchAndPostNews(options = {}) {
       console.log(`\n📰 Fetching ${category} news...`);
 
       try {
-        // Fetch news with automatic fallback
+        // Fetch news from ALL RSS providers (all articles within last 6 hours)
         const fetchResult = await newsService.fetchNews({
           category,
-          maxArticles: maxArticlesPerCategory
+          maxArticles: maxArticlesPerCategory,
+          articlesPerProvider: articlesPerProvider, // null = fetch all articles
+          hoursAgo: 6 // Only get articles from last 6 hours
         });
 
         if (fetchResult.success && fetchResult.articles.length > 0) {
-          console.log(`✅ Fetched ${fetchResult.articles.length} articles from ${fetchResult.provider}`);
+          console.log(`✅ Fetched ${fetchResult.articles.length} articles from ${fetchResult.provider} (${articlesPerProvider} per provider)`);
+          if (fetchResult.skippedProviders && fetchResult.skippedProviders.length > 0) {
+            console.log(`⏭️  Skipped providers (no date filter support): ${fetchResult.skippedProviders.join(', ')}`);
+          }
 
           if (!dryRun) {
             // Process and create articles
@@ -134,7 +142,7 @@ if (require.main === module) {
   const categoryArg = args.find(arg => arg.startsWith('--category='));
   const categories = categoryArg
     ? [categoryArg.split('=')[1].toUpperCase()]
-    : ['DEFI', 'FINANCE', 'POLITICS', 'SPORT', 'ENTERTAINMENT', 'WEATHER', 'TECHNOLOGY', 'BUSINESS', 'HEALTH', 'SCIENCE', 'OTHERS'];
+    : ['DEFI', 'FINANCE', 'POLITICS', 'SPORT', 'ENTERTAINMENT', 'WEATHER', 'TECHNOLOGY', 'BUSINESS', 'OTHERS']; // HEALTH and SCIENCE removed - not using RSS for these
 
   fetchAndPostNews({
     categories,
