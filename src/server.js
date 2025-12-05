@@ -37,6 +37,7 @@ const { autoSyncDatabase } = require('./scripts/autoSync');
 const notificationCronOptimized = require('./services/notificationCronOptimized');
 const miningCron = require('./services/miningCron');
 const dataCleanupCron = require('./services/dataCleanupCron');
+const newsCron = require('./services/newsCron');
 
 const app = express();
 const PORT = process.env.PORT || 8001;
@@ -247,6 +248,9 @@ const startServer = async () => {
     
     // Start data cleanup cron jobs
     dataCleanupCron.startAll();
+    
+    // Start news automation cron jobs
+    newsCron.startAll();
     
     // Note: Seed data manually using: npm run db:seed
     // Or run once with: npm run db:reset-seed

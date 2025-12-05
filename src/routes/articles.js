@@ -707,6 +707,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
         imageData: true,
         imageType: true,
         createdAt: true,
+        originalAuthor: true,
         author: {
           select: {
             id: true,

@@ -98,6 +98,8 @@ model Article {
   reviewedAt       DateTime?      @map("reviewed_at")
   rejectionReason  String?        @map("rejection_reason")
   publishedAt      DateTime?      @map("published_at")
+  originalAuthor   String?        @map("original_author") @db.VarChar
+  originalPublishedAt DateTime?   @map("original_published_at")
   author           User?          @relation("ArticleAuthor", fields: [authorId], references: [id])
   reviewer         User?          @relation("ArticleReviewer", fields: [reviewedBy], references: [id])
   activities       UserActivity[]

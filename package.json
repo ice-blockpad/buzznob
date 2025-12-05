@@ -22,7 +22,9 @@
     "health": "node healthcheck.js",
     "db:init": "node src/scripts/initDatabase.js",
     "db:force-seed": "set FORCE_SEED=true && node src/scripts/initDatabase.js",
-    "manage-admin": "node src/scripts/manageAdmin.js"
+    "manage-admin": "node src/scripts/manageAdmin.js",
+    "news:fetch": "node src/scripts/fetchAndPostNews.js",
+    "news:fetch:dry-run": "node src/scripts/fetchAndPostNews.js --dry-run"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.490.0",
@@ -33,6 +35,7 @@
     "aws-sdk": "^2.1501.0",
     "axios": "^1.6.2",
     "bcryptjs": "^2.4.3",
+    "cheerio": "^1.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "ethers": "^6.15.0",
@@ -49,7 +52,8 @@
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
-    "prisma": "^5.7.1"
+    "prisma": "^5.7.1",
+    "rss-parser": "^3.13.0"
   },
   "devDependencies": {
     "jest": "^29.7.0",
