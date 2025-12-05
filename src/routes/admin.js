@@ -853,7 +853,7 @@ router.post('/articles', authenticateToken, debugMiddleware, upload.fields([{ na
     } = req.body;
 
     // Parse numeric values from FormData (which sends everything as strings)
-    const parsedPointsValue = parseInt(pointsValue) || 5;
+    const parsedPointsValue = parseInt(pointsValue) || 10;
     const parsedIsFeatured = isFeatured === 'true' || isFeatured === true;
 
     // Handle image - prefer Cloudflare R2 URL over base64
@@ -1141,7 +1141,8 @@ router.put('/articles/:id', authenticateToken, async (req, res) => {
       'sourceUrl',
       'pointsValue',
       'isFeatured',
-      'imageUrl'
+      'imageUrl',
+      'originalAuthor'
     ];
 
     // Only update provided fields

@@ -37,7 +37,8 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
       sourceName,
       sourceUrl,
       pointsValue,
-      isFeatured
+      isFeatured,
+      originalAuthor
     } = req.body;
 
     // Parse numeric values from FormData
@@ -93,6 +94,14 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
       });
     }
 
+    if (!originalAuthor || !originalAuthor.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'MISSING_FIELDS',
+        message: 'Author name is required'
+      });
+    }
+
     if (!finalImageUrl && !finalImageData) {
       return res.status(400).json({
         success: false,
@@ -115,7 +124,8 @@ router.post('/articles', authenticateToken, requireCreator, upload.fields([{ nam
         imageData: finalImageData || null,
         imageType: finalImageType || null,
         status: 'pending',
-        authorId: userId
+        authorId: userId,
+        originalAuthor: originalAuthor.trim()
       }
     });
 

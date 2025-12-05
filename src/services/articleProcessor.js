@@ -180,7 +180,7 @@ class ArticleProcessor {
           category: category.toUpperCase(),
           sourceUrl: newsArticle.url || null,
           sourceName: newsArticle.sourceName || 'Automated News',
-          pointsValue: 5, // Default points value
+          pointsValue: 10, // Default points value
           isFeatured: false,
           imageUrl: imageUrl,
           imageData: null, // We use imageUrl instead of base64
