@@ -74,6 +74,7 @@ async function autoSyncDatabase() {
         timeout: 30000 // 30 second timeout
       });
       
+      
       if (generateStdout) console.log(generateStdout);
       if (generateStderr && !generateStderr.includes('warnings') && !generateStderr.includes('EPERM')) {
         console.warn('Prisma generate warnings:', generateStderr);

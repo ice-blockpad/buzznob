@@ -5,6 +5,7 @@ const prisma = new PrismaClient({
 });
 
 
+
 const connectDB = async () => {
   try {
     await prisma.$connect();
