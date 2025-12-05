@@ -2,86 +2,7 @@ const { exec } = require('child_process');
 const util = require('util');
 const fs = require('fs').promises;
 const path = require('path');
-const os = require('os');
 const execPromise = util.promisify(exec);
-
-/**
- * Check if a process with the given PID is still running
- */
-async function isProcessRunning(pid) {
-  try {
-    if (os.platform() === 'win32') {
-      // Windows: tasklist command
-      await execPromise(`tasklist /FI "PID eq ${pid}" 2>nul | find "${pid}"`);
-      return true;
-    } else {
-      // Unix-like: kill -0 to check if process exists
-      await execPromise(`kill -0 ${pid} 2>/dev/null`);
-      return true;
-    }
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Try to acquire lock file with stale lock detection
- */
-async function acquireLock(lockFile) {
-  const MAX_LOCK_AGE = 120000; // 2 minutes
-  
-  try {
-    // Try to create lock file
-    await fs.writeFile(lockFile, process.pid.toString(), { flag: 'wx' });
-    console.log('🔒 Acquired database sync lock');
-    return true;
-  } catch (lockError) {
-    if (lockError.code !== 'EEXIST') {
-      throw lockError; // Unexpected error
-    }
-    
-    // Lock exists - check if it's stale
-    try {
-      const lockContent = await fs.readFile(lockFile, 'utf8');
-      const lockPid = parseInt(lockContent.trim(), 10);
-      const lockStats = await fs.stat(lockFile);
-      const lockAge = Date.now() - lockStats.mtime.getTime();
-      
-      // Check if lock is stale (old or process dead)
-      const isStale = lockAge > MAX_LOCK_AGE || !(await isProcessRunning(lockPid));
-      
-      if (isStale) {
-        console.log(`⚠️  Stale lock detected (PID: ${lockPid}, age: ${Math.round(lockAge / 1000)}s), removing...`);
-        await fs.unlink(lockFile);
-        // Retry acquiring lock
-        await fs.writeFile(lockFile, process.pid.toString(), { flag: 'wx' });
-        console.log('🔒 Acquired database sync lock');
-        return true;
-      }
-      
-      // Lock is valid - another process is syncing
-      console.log('⏳ Database sync already in progress by another process, skipping...');
-      return false;
-    } catch (checkError) {
-      // Lock file was removed between check and now, or other error
-      if (checkError.code === 'ENOENT') {
-        // Lock was removed, try again
-        try {
-          await fs.writeFile(lockFile, process.pid.toString(), { flag: 'wx' });
-          console.log('🔒 Acquired database sync lock');
-          return true;
-        } catch (retryError) {
-          if (retryError.code === 'EEXIST') {
-            console.log('⏳ Database sync already in progress, skipping...');
-            return false;
-          }
-          throw retryError;
-        }
-      }
-      throw checkError;
-    }
-  }
-}
 
 /**
  * Auto-sync database schema on server startup
@@ -107,20 +28,72 @@ async function autoSyncDatabase() {
   let lockAcquired = false;
 
   try {
-    // Try to acquire lock
-    lockAcquired = await acquireLock(lockFile);
-    if (!lockAcquired) {
-      return true; // Another process is handling it, exit gracefully
+    // Try to acquire lock file (non-blocking)
+    try {
+      await fs.writeFile(lockFile, process.pid.toString(), { flag: 'wx' });
+      lockAcquired = true;
+      console.log('🔒 Acquired database sync lock');
+    } catch (lockError) {
+      if (lockError.code === 'EEXIST') {
+        // Lock file exists - another process is syncing
+        console.log('⏳ Database sync already in progress by another process, skipping...');
+        // Wait a bit and check if lock is stale (older than 2 minutes)
+        try {
+          const lockStats = await fs.stat(lockFile);
+          const lockAge = Date.now() - lockStats.mtime.getTime();
+          if (lockAge > 120000) { // 2 minutes
+            console.log('⚠️  Stale lock detected, removing and retrying...');
+            await fs.unlink(lockFile);
+            await fs.writeFile(lockFile, process.pid.toString(), { flag: 'wx' });
+            lockAcquired = true;
+          } else {
+            return true; // Another process is handling it, exit gracefully
+          }
+        } catch (checkError) {
+          // Lock was removed between check and now, try again
+          try {
+            await fs.writeFile(lockFile, process.pid.toString(), { flag: 'wx' });
+            lockAcquired = true;
+          } catch (retryError) {
+            console.log('⏳ Database sync already in progress, skipping...');
+            return true;
+          }
+        }
+      } else {
+        throw lockError;
+      }
     }
 
     console.log('🔄 Auto-syncing database schema...');
+
+    // First, ensure Prisma client is generated
+    console.log('🔧 Generating Prisma client...');
+    try {
+      const { stdout: generateStdout, stderr: generateStderr } = await execPromise('npx prisma generate', {
+        cwd: __dirname + '/../..',
+        timeout: 30000 // 30 second timeout
+      });
+      
+      if (generateStdout) console.log(generateStdout);
+      if (generateStderr && !generateStderr.includes('warnings') && !generateStderr.includes('EPERM')) {
+        console.warn('Prisma generate warnings:', generateStderr);
+      }
+    } catch (generateError) {
+      // Handle Windows-specific EPERM errors gracefully
+      if (generateError.message.includes('EPERM') || generateError.message.includes('operation not permitted')) {
+        console.log('⚠️  Prisma client generation had permission issues (common on Windows)');
+        console.log('   This is usually safe to ignore if the client was previously generated');
+      } else {
+        console.warn('⚠️  Prisma client generation failed:', generateError.message);
+      }
+    }
     
-    // prisma db push automatically generates the client, so we don't need a separate generate step
-    // This saves ~5-10 seconds on startup
-    console.log('📊 Pushing database schema (this will also generate Prisma client)...');
+    // Use db push for development (no migration files needed)
+    // This automatically creates missing tables, columns, and updates existing ones
+    console.log('📊 Pushing database schema...');
     const { stdout, stderr } = await execPromise('npx prisma db push --accept-data-loss', {
-      cwd: path.join(__dirname, '../..'),
-      timeout: 60000 // 60 second timeout (increased for large schemas)
+      cwd: __dirname + '/../..',
+      timeout: 30000 // 30 second timeout
     });
     
     if (stdout) console.log(stdout);

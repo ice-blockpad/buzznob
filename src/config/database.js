@@ -1,15 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
 
-/**
- * Prisma Client Configuration
- * 
- * For PM2 cluster mode, configure DATABASE_URL with connection pooling:
- * postgresql://user:pass@host:5432/db?connection_limit=5&pool_timeout=10
- * 
- * This prevents prepared statement conflicts when multiple instances run.
- * Recommended: connection_limit=5 per instance
- * Total connections = instances * connection_limit (keep under PostgreSQL max_connections)
- */
 const prisma = new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error'],
 });
