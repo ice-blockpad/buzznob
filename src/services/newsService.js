@@ -490,26 +490,128 @@ class NewsService {
   }
 
   /**
+   * Upgrade thumbnail URL to larger size if possible
+   * Many CDNs (like BBC iChef) support size parameters in URLs
+   */
+  upgradeThumbnailUrl(thumbnailUrl) {
+    if (!thumbnailUrl) return thumbnailUrl;
+    
+    // BBC iChef CDN: /ace/standard/240/... can be upgraded to larger sizes
+    // Try 1024px first (good balance of quality and size)
+    if (thumbnailUrl.includes('ichef.bbci.co.uk') && thumbnailUrl.includes('/standard/240/')) {
+      return thumbnailUrl.replace('/standard/240/', '/standard/1024/');
+    }
+    
+    // Generic pattern: if URL contains size indicators, try to upgrade
+    // Common patterns: /240/, /thumb/, /thumbnail/, _thumb, _small
+    const sizePatterns = [
+      { pattern: /\/standard\/240\//i, replacement: '/standard/1024/' },
+      { pattern: /\/240\//i, replacement: '/1024/' },
+      { pattern: /\/thumb\//i, replacement: '/large/' },
+      { pattern: /\/thumbnail\//i, replacement: '/large/' },
+      { pattern: /_thumb/i, replacement: '_large' },
+      { pattern: /_small/i, replacement: '_large' },
+    ];
+    
+    for (const { pattern, replacement } of sizePatterns) {
+      if (pattern.test(thumbnailUrl)) {
+        return thumbnailUrl.replace(pattern, replacement);
+      }
+    }
+    
+    return thumbnailUrl;
+  }
+
+  /**
    * Extract image URL from RSS item
+   * Prioritizes full-resolution images over thumbnails
+   * Automatically upgrades thumbnail URLs to larger sizes when possible
    */
   extractImageFromRSSItem(item) {
-    // Try different image sources
-    if (item['media:content'] && item['media:content']['$'] && item['media:content']['$'].url) {
-      return item['media:content']['$'].url;
+    // Priority 1: media:content (full-resolution image)
+    if (item['media:content']) {
+      // Handle both object format and array format
+      const mediaContent = Array.isArray(item['media:content']) 
+        ? item['media:content'][0] 
+        : item['media:content'];
+      
+      if (mediaContent) {
+        // Try $ property first (common RSS format)
+        if (mediaContent['$'] && mediaContent['$'].url) {
+          return mediaContent['$'].url;
+        }
+        // Try direct url property
+        if (mediaContent.url) {
+          return mediaContent.url;
+        }
+        // Try as string if it's a simple format
+        if (typeof mediaContent === 'string') {
+          return mediaContent;
+        }
+      }
     }
-    if (item['media:thumbnail'] && item['media:thumbnail']['$'] && item['media:thumbnail']['$'].url) {
-      return item['media:thumbnail']['$'].url;
+    
+    // Priority 2: Extract from HTML content (often full-resolution)
+    if (item.content) {
+      // Try to extract image from HTML content - look for larger images first
+      const imgMatches = item.content.match(/<img[^>]+src="([^"]+)"/gi);
+      if (imgMatches && imgMatches.length > 0) {
+        // Get the first image (usually the main article image)
+        const firstMatch = imgMatches[0].match(/src="([^"]+)"/i);
+        if (firstMatch && firstMatch[1]) {
+          // Prefer full URLs, avoid thumbnail URLs
+          const imgUrl = firstMatch[1];
+          // Skip obvious thumbnail indicators
+          if (!imgUrl.toLowerCase().includes('thumb') && 
+              !imgUrl.toLowerCase().includes('thumbnail') &&
+              !imgUrl.toLowerCase().includes('_thumb')) {
+            return imgUrl;
+          }
+        }
+      }
     }
+    
+    // Priority 3: enclosure (usually full image)
     if (item.enclosure && item.enclosure.url && item.enclosure.type && item.enclosure.type.startsWith('image/')) {
       return item.enclosure.url;
     }
-    if (item.content) {
-      // Try to extract image from HTML content
-      const imgMatch = item.content.match(/<img[^>]+src="([^"]+)"/i);
-      if (imgMatch && imgMatch[1]) {
-        return imgMatch[1];
+    
+    // Priority 4: description field (sometimes contains image HTML)
+    if (item.description) {
+      const descImgMatch = item.description.match(/<img[^>]+src="([^"]+)"/i);
+      if (descImgMatch && descImgMatch[1]) {
+        const imgUrl = descImgMatch[1];
+        // Skip thumbnails
+        if (!imgUrl.toLowerCase().includes('thumb') && 
+            !imgUrl.toLowerCase().includes('thumbnail')) {
+          return imgUrl;
+        }
       }
     }
+    
+    // Last resort: media:thumbnail (only if no other option)
+    // This is intentionally last because thumbnails are low quality
+    // BUT: We'll try to upgrade it to a larger size
+    if (item['media:thumbnail']) {
+      const thumbnail = Array.isArray(item['media:thumbnail']) 
+        ? item['media:thumbnail'][0] 
+        : item['media:thumbnail'];
+      
+      if (thumbnail) {
+        let thumbnailUrl = null;
+        if (thumbnail['$'] && thumbnail['$'].url) {
+          thumbnailUrl = thumbnail['$'].url;
+        } else if (thumbnail.url) {
+          thumbnailUrl = thumbnail.url;
+        }
+        
+        if (thumbnailUrl) {
+          // Try to upgrade thumbnail to larger size
+          return this.upgradeThumbnailUrl(thumbnailUrl);
+        }
+      }
+    }
+    
     return null;
   }
 
