@@ -14,6 +14,204 @@ class ArticleScraper {
   }
 
   /**
+   * Extract author name from article page HTML
+   * Tries multiple methods: meta tags, author selectors, byline
+   */
+  extractAuthorFromHTML(html, url) {
+    try {
+      const $ = cheerio.load(html);
+      
+      // Priority 1: Meta tags (most reliable)
+      const metaAuthor = $('meta[name="author"]').attr('content') ||
+                        $('meta[property="article:author"]').attr('content') ||
+                        $('meta[name="article:author"]').attr('content') ||
+                        $('meta[property="og:article:author"]').attr('content');
+      if (metaAuthor) {
+        return metaAuthor.trim();
+      }
+      
+      // Priority 2: JSON-LD structured data
+      const jsonLdScripts = $('script[type="application/ld+json"]');
+      for (let i = 0; i < jsonLdScripts.length; i++) {
+        try {
+          const jsonData = JSON.parse($(jsonLdScripts[i]).html());
+          if (jsonData.author) {
+            if (typeof jsonData.author === 'string') {
+              return jsonData.author.trim();
+            } else if (jsonData.author.name) {
+              return jsonData.author.name.trim();
+            }
+          }
+          // Check for @graph array (common in structured data)
+          if (jsonData['@graph']) {
+            for (const item of jsonData['@graph']) {
+              if (item.author) {
+                if (typeof item.author === 'string') {
+                  return item.author.trim();
+                } else if (item.author.name) {
+                  return item.author.name.trim();
+                }
+              }
+            }
+          }
+        } catch (e) {
+          // Skip invalid JSON
+        }
+      }
+      
+      // Priority 3: Author-specific selectors
+      const urlLower = url.toLowerCase();
+      
+      // ESPN specific
+      if (urlLower.includes('espn.com')) {
+        const espnAuthor = $('[data-module="Byline"] .author').text() ||
+                          $('.author').first().text() ||
+                          $('[class*="author"]').first().text();
+        if (espnAuthor && espnAuthor.trim().length > 0) {
+          return espnAuthor.trim();
+        }
+      }
+      
+      // BBC specific
+      if (urlLower.includes('bbc.com') || urlLower.includes('bbc.co.uk')) {
+        const bbcAuthor = $('[data-component="byline"]').text() ||
+                         $('.byline').text();
+        if (bbcAuthor && bbcAuthor.trim().length > 0) {
+          return bbcAuthor.trim();
+        }
+      }
+      
+      // Generic author selectors
+      const authorSelectors = [
+        '.author',
+        '.byline',
+        '.article-author',
+        '.post-author',
+        '[rel="author"]',
+        '[itemprop="author"]',
+        '.author-name',
+        '.writer',
+        '.reporter',
+        'article .author',
+        'article .byline'
+      ];
+      
+      for (const selector of authorSelectors) {
+        const authorElement = $(selector).first();
+        if (authorElement.length > 0) {
+          let authorText = authorElement.text().trim();
+          // Clean up common prefixes
+          authorText = authorText.replace(/^(By|Author|Writer|Reporter|Byline)[:\s]+/i, '').trim();
+          if (authorText.length > 0 && authorText.length < 100) {
+            return authorText;
+          }
+        }
+      }
+      
+      // Priority 4: Look for author in article content (first paragraph sometimes has "By Author Name")
+      const firstParagraph = $('article p, .article p, .content p').first().text();
+      if (firstParagraph) {
+        const byMatch = firstParagraph.match(/^By\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
+        if (byMatch && byMatch[1]) {
+          const author = byMatch[1].trim();
+          if (author.length > 2 && author.length < 100) {
+            return author;
+          }
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error extracting author from HTML:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Extract image URL from article page HTML
+   * Tries multiple methods: og:image, article image, first large image
+   */
+  extractImageFromHTML(html, url) {
+    try {
+      const $ = cheerio.load(html);
+      
+      // Priority 1: Open Graph image (most reliable)
+      const ogImage = $('meta[property="og:image"]').attr('content') || 
+                      $('meta[name="og:image"]').attr('content');
+      if (ogImage) {
+        // Make absolute URL if relative
+        try {
+          return new URL(ogImage, url).href;
+        } catch {
+          return ogImage.startsWith('http') ? ogImage : null;
+        }
+      }
+      
+      // Priority 2: Twitter card image
+      const twitterImage = $('meta[name="twitter:image"]').attr('content') ||
+                          $('meta[property="twitter:image"]').attr('content');
+      if (twitterImage) {
+        try {
+          return new URL(twitterImage, url).href;
+        } catch {
+          return twitterImage.startsWith('http') ? twitterImage : null;
+        }
+      }
+      
+      // Priority 3: Article-specific image selectors
+      const urlLower = url.toLowerCase();
+      
+      // ESPN specific
+      if (urlLower.includes('espn.com')) {
+        const espnImage = $('meta[name="image"]').attr('content') ||
+                         $('img[class*="Image"]').first().attr('src') ||
+                         $('img[class*="image"]').first().attr('src');
+        if (espnImage) {
+          try {
+            return new URL(espnImage, url).href;
+          } catch {
+            return espnImage.startsWith('http') ? espnImage : null;
+          }
+        }
+      }
+      
+      // Priority 4: First large image in article content
+      const articleImages = $('article img, .article img, .content img, main img')
+        .filter((i, el) => {
+          const src = $(el).attr('src');
+          if (!src) return false;
+          // Skip small images (likely icons/avatars)
+          const width = $(el).attr('width');
+          const height = $(el).attr('height');
+          if (width && parseInt(width) < 200) return false;
+          if (height && parseInt(height) < 200) return false;
+          // Skip data URIs and placeholders
+          if (src.startsWith('data:') || src.includes('placeholder') || src.includes('logo')) return false;
+          return true;
+        })
+        .map((i, el) => {
+          const src = $(el).attr('src');
+          try {
+            return new URL(src, url).href;
+          } catch {
+            return src.startsWith('http') ? src : null;
+          }
+        })
+        .get()
+        .filter(Boolean);
+      
+      if (articleImages.length > 0) {
+        return articleImages[0];
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error extracting image from HTML:', error);
+      return null;
+    }
+  }
+
+  /**
    * Extract main content from HTML
    */
   extractContent(html, url) {
@@ -301,6 +499,74 @@ class ArticleScraper {
     }
 
     return cleaned;
+  }
+
+  /**
+   * Fetch image from article page
+   */
+  async fetchImageFromURL(url) {
+    if (!url) return null;
+
+    try {
+      const urlObj = new URL(url);
+      if (!['http:', 'https:'].includes(urlObj.protocol)) {
+        return null;
+      }
+
+      const response = await axios.get(url, {
+        timeout: this.timeout,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        maxRedirects: 5,
+        validateStatus: (status) => status < 500
+      });
+
+      if (response.status !== 200) {
+        return null;
+      }
+
+      return this.extractImageFromHTML(response.data, url);
+    } catch (error) {
+      console.warn(`⚠️  Error fetching image from ${url.substring(0, 50)}...: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch author from article page
+   */
+  async fetchAuthorFromURL(url) {
+    if (!url) return null;
+
+    try {
+      const urlObj = new URL(url);
+      if (!['http:', 'https:'].includes(urlObj.protocol)) {
+        return null;
+      }
+
+      const response = await axios.get(url, {
+        timeout: this.timeout,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        maxRedirects: 5,
+        validateStatus: (status) => status < 500
+      });
+
+      if (response.status !== 200) {
+        return null;
+      }
+
+      return this.extractAuthorFromHTML(response.data, url);
+    } catch (error) {
+      console.warn(`⚠️  Error fetching author from ${url.substring(0, 50)}...: ${error.message}`);
+      return null;
+    }
   }
 
   /**

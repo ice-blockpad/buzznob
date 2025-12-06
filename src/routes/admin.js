@@ -30,55 +30,50 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
     const role = req.query.role;
     const skip = (page - 1) * limit;
 
-    // Build cache key from query params
-    const cacheKey = `admin:users:${page}:${limit}:${search || ''}:${role || ''}`;
+    // Fetch directly from database (no caching for admin)
+    const where = {};
+    if (search) {
+      where.OR = [
+        { username: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { displayName: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+    if (role) where.role = role;
 
-    // Write-through cache: Get from cache, or fetch from DB and cache
-    const result = await cacheService.getOrSet(cacheKey, async () => {
-      const where = {};
-      if (search) {
-        where.OR = [
-          { username: { contains: search, mode: 'insensitive' } },
-          { email: { contains: search, mode: 'insensitive' } },
-          { displayName: { contains: search, mode: 'insensitive' } }
-        ];
+    const users = await prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        displayName: true,
+        avatarUrl: true,
+        points: true,
+        streakCount: true,
+        role: true,
+        isActive: true,
+        isVerified: true,
+        kycStatus: true,
+        createdAt: true,
+        lastLogin: true
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit
+    });
+
+    const totalCount = await prisma.user.count({ where });
+
+    const result = {
+      users,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        pages: Math.ceil(totalCount / limit)
       }
-      if (role) where.role = role;
-
-      const users = await prisma.user.findMany({
-        where,
-        select: {
-          id: true,
-          username: true,
-          email: true,
-          displayName: true,
-          avatarUrl: true,
-          points: true,
-          streakCount: true,
-          role: true,
-          isActive: true,
-          isVerified: true,
-          kycStatus: true,
-          createdAt: true,
-          lastLogin: true
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit
-      });
-
-      const totalCount = await prisma.user.count({ where });
-
-      return {
-        users,
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          pages: Math.ceil(totalCount / limit)
-        }
-      };
-    }, 300); // 5 minutes TTL
+    };
 
     res.json({
       success: true,
@@ -100,11 +95,8 @@ router.get('/users/:userId', authenticateToken, requireAdmin, async (req, res) =
   try {
     const { userId } = req.params;
 
-    const cacheKey = `admin:user:${userId}`;
-
-    // Write-through cache: Get from cache, or fetch from DB and cache
-    const result = await cacheService.getOrSet(cacheKey, async () => {
-      const user = await prisma.user.findUnique({
+    // Fetch directly from database (no caching for admin)
+    const user = await prisma.user.findUnique({
         where: { id: userId },
         include: {
           activities: {
@@ -141,30 +133,25 @@ router.get('/users/:userId', authenticateToken, requireAdmin, async (req, res) =
         }
       });
 
-      if (!user) {
-        return null; // Return null to indicate not found
-      }
-
-      // Get referral stats
-      const referralCount = await prisma.user.count({
-        where: { referredBy: userId }
-      });
-
-      return {
-        user: {
-          ...user,
-          referralCount
-        }
-      };
-    }, 300); // 5 minutes TTL
-
-    if (!result) {
+    if (!user) {
       return res.status(404).json({
         success: false,
         error: 'USER_NOT_FOUND',
         message: 'User not found'
       });
     }
+
+    // Get referral stats
+    const referralCount = await prisma.user.count({
+      where: { referredBy: userId }
+    });
+
+    const result = {
+      user: {
+        ...user,
+        referralCount
+      }
+    };
 
     res.json({
       success: true,
@@ -386,20 +373,16 @@ router.get('/users/:userId/achievements', authenticateToken, requireAdmin, async
       });
     }
 
-    const cacheKey = `admin:achievements:${userId}`;
-
-    // Write-through cache: Get from cache, or fetch from DB and cache
-    const userAchievements = await cacheService.getOrSet(cacheKey, async () => {
-      return await prisma.userBadge.findMany({
-        where: { userId: userId },
-        include: {
-          badge: true
-        },
-        orderBy: {
-          earnedAt: 'desc'
-        }
-      });
-    }, 600); // 10 minutes TTL (write-through cache with safety net)
+    // Fetch directly from database (no caching for admin)
+    const userAchievements = await prisma.userBadge.findMany({
+      where: { userId: userId },
+      include: {
+        badge: true
+      },
+      orderBy: {
+        earnedAt: 'desc'
+      }
+    });
 
     res.json({
       success: true,
@@ -585,77 +568,73 @@ router.patch('/users/:userId/achievements/:achievementId', authenticateToken, re
 // Get system statistics (admin)
 router.get('/stats', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const cacheKey = 'admin:stats';
+    // Fetch directly from database (no caching for admin)
+    // Get total users
+    const totalUsers = await prisma.user.count();
+    
+    // Get active users by time period (based on daily reward claims)
+    // Uses UTC day boundaries to match daily reward system
+    const now = new Date();
+    
+    // UTC day helper functions (matching daily reward logic)
+    const startOfUtcDay = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+    const startOfUtcWeek = (d) => {
+      const day = d.getUTCDay();
+      const diff = d.getUTCDate() - day; // Sunday = 0
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff, 0, 0, 0, 0));
+    };
+    const startOfUtcMonth = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
+    
+    const todayUtcStart = startOfUtcDay(now);
+    const weekUtcStart = startOfUtcWeek(now);
+    const monthUtcStart = startOfUtcMonth(now);
+    
+    // Count unique users who claimed daily reward today (since 00:00 UTC)
+    const activeToday = await prisma.dailyReward.groupBy({
+      by: ['userId'],
+      where: {
+        claimedAt: {
+          gte: todayUtcStart
+        }
+      }
+    }).then(results => results.length);
+    
+    // Count unique users who claimed daily reward this week (since start of week UTC)
+    const activeLastWeek = await prisma.dailyReward.groupBy({
+      by: ['userId'],
+      where: {
+        claimedAt: {
+          gte: weekUtcStart
+        }
+      }
+    }).then(results => results.length);
+    
+    // Count unique users who claimed daily reward this month (since start of month UTC)
+    const activeLastMonth = await prisma.dailyReward.groupBy({
+      by: ['userId'],
+      where: {
+        claimedAt: {
+          gte: monthUtcStart
+        }
+      }
+    }).then(results => results.length);
+    
+    // Get total articles
+    const totalArticles = await prisma.article.count();
+    
+    // Pending reviews: count articles awaiting review
+    const pendingReviews = await prisma.article.count({
+      where: { status: 'pending' }
+    });
 
-    // Write-through cache: Get from cache, or fetch from DB and cache
-    const stats = await cacheService.getOrSet(cacheKey, async () => {
-      // Get total users
-      const totalUsers = await prisma.user.count();
-      
-      // Get active users by time period (based on daily reward claims)
-      // Uses UTC day boundaries to match daily reward system
-      const now = new Date();
-      
-      // UTC day helper functions (matching daily reward logic)
-      const startOfUtcDay = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
-      const startOfUtcWeek = (d) => {
-        const day = d.getUTCDay();
-        const diff = d.getUTCDate() - day; // Sunday = 0
-        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), diff, 0, 0, 0, 0));
-      };
-      const startOfUtcMonth = (d) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1, 0, 0, 0, 0));
-      
-      const todayUtcStart = startOfUtcDay(now);
-      const weekUtcStart = startOfUtcWeek(now);
-      const monthUtcStart = startOfUtcMonth(now);
-      
-      // Count unique users who claimed daily reward today (since 00:00 UTC)
-      const activeToday = await prisma.dailyReward.groupBy({
-        by: ['userId'],
-        where: {
-          claimedAt: {
-            gte: todayUtcStart
-          }
-        }
-      }).then(results => results.length);
-      
-      // Count unique users who claimed daily reward this week (since start of week UTC)
-      const activeLastWeek = await prisma.dailyReward.groupBy({
-        by: ['userId'],
-        where: {
-          claimedAt: {
-            gte: weekUtcStart
-          }
-        }
-      }).then(results => results.length);
-      
-      // Count unique users who claimed daily reward this month (since start of month UTC)
-      const activeLastMonth = await prisma.dailyReward.groupBy({
-        by: ['userId'],
-        where: {
-          claimedAt: {
-            gte: monthUtcStart
-          }
-        }
-      }).then(results => results.length);
-      
-      // Get total articles
-      const totalArticles = await prisma.article.count();
-      
-      // Pending reviews: count articles awaiting review
-      const pendingReviews = await prisma.article.count({
-        where: { status: 'pending' }
-      });
-
-      return {
-        totalUsers,
-        activeToday,
-        activeLastWeek,
-        activeLastMonth,
-        totalArticles,
-        pendingReviews
-      };
-    }, 300); // 5 minutes TTL (stats change frequently)
+    const stats = {
+      totalUsers,
+      activeToday,
+      activeLastWeek,
+      activeLastMonth,
+      totalArticles,
+      pendingReviews
+    };
 
     res.json({
       success: true,
@@ -990,56 +969,52 @@ router.get('/articles', authenticateToken, requireAdmin, async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const cacheKey = `admin:articles:${page}:${limit}`;
-
-    // Write-through cache: Get from cache, or fetch from DB and cache
-    const result = await cacheService.getOrSet(cacheKey, async () => {
-      const articles = await prisma.article.findMany({
-        where: {
-          status: 'published'
+    // Fetch directly from database (no caching for admin)
+    const articles = await prisma.article.findMany({
+      where: {
+        status: 'published'
+      },
+      orderBy: { publishedAt: 'desc' },
+      skip,
+      take: limit,
+      include: {
+        activities: {
+          select: {
+            id: true,
+            userId: true,
+            pointsEarned: true
+          }
         },
-        orderBy: { publishedAt: 'desc' },
-        skip,
-        take: limit,
-        include: {
-          activities: {
-            select: {
-              id: true,
-              userId: true,
-              pointsEarned: true
-            }
-          },
-          author: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-              role: true
-            }
+        author: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            role: true
           }
         }
-      });
+      }
+    });
 
-      const totalCount = await prisma.article.count({
-        where: { status: 'published' }
-      });
+    const totalCount = await prisma.article.count({
+      where: { status: 'published' }
+    });
 
-      // Add computed fields
-      const articlesWithStats = articles.map(article => ({
-        ...article,
-        views: article.activities.length
-      }));
+    // Add computed fields
+    const articlesWithStats = articles.map(article => ({
+      ...article,
+      views: article.activities.length
+    }));
 
-      return {
-        articles: articlesWithStats,
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          pages: Math.ceil(totalCount / limit)
-        }
-      };
-    }, 300); // 5 minutes TTL
+    const result = {
+      articles: articlesWithStats,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        pages: Math.ceil(totalCount / limit)
+      }
+    };
 
     res.json({
       success: true,
@@ -1063,44 +1038,40 @@ router.get('/articles/pending', authenticateToken, requireAdmin, async (req, res
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const cacheKey = `admin:articles:pending:${page}:${limit}`;
-
-    // Write-through cache: Get from cache, or fetch from DB and cache
-    const result = await cacheService.getOrSet(cacheKey, async () => {
-      const articles = await prisma.article.findMany({
-        where: {
-          status: 'pending'
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-        include: {
-          author: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-              email: true,
-              role: true
-            }
+    // Fetch directly from database (no caching for admin)
+    const articles = await prisma.article.findMany({
+      where: {
+        status: 'pending'
+      },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: {
+        author: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            email: true,
+            role: true
           }
         }
-      });
+      }
+    });
 
-      const totalCount = await prisma.article.count({
-        where: { status: 'pending' }
-      });
+    const totalCount = await prisma.article.count({
+      where: { status: 'pending' }
+    });
 
-      return {
-        articles,
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          pages: Math.ceil(totalCount / limit)
-        }
-      };
-    }, 120); // 2 minutes TTL (pending articles change frequently)
+    const result = {
+      articles,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        pages: Math.ceil(totalCount / limit)
+      }
+    };
 
     res.json({
       success: true,
@@ -1378,17 +1349,13 @@ router.get('/articles/:id/read-count/actual', authenticateToken, requireAdmin, a
   try {
     const { id } = req.params;
 
-    const cacheKey = `admin:article:${id}:read-count:actual`;
+    // Fetch directly from database (no caching for admin)
+    // Use ReadArticle for historical counts (includes all reads, even if UserActivity was cleaned up)
+    const actualCount = await prisma.readArticle.count({
+      where: { articleId: id }
+    });
 
-    // Write-through cache: Get from cache, or fetch from DB and cache
-    const result = await cacheService.getOrSet(cacheKey, async () => {
-      // Use ReadArticle for historical counts (includes all reads, even if UserActivity was cleaned up)
-      const actualCount = await prisma.readArticle.count({
-        where: { articleId: id }
-      });
-
-      return { actualCount };
-    }, 300); // 5 minutes TTL
+    const result = { actualCount };
 
     res.json({
       success: true,
@@ -1735,86 +1702,82 @@ router.get('/articles/review-history', authenticateToken, requireAdmin, async (r
     const skip = (page - 1) * limit;
     const userId = req.user.id;
 
-    const cacheKey = `admin:articles:review-history:${page}:${limit}`;
-
-    // Write-through cache: Get from cache, or fetch from DB and cache
-    const result = await cacheService.getOrSet(cacheKey, async () => {
-      // Get all articles that have been reviewed by any admin
-      const reviewedArticles = await prisma.article.findMany({
-        where: {
-          status: {
-            in: ['approved', 'rejected', 'published']
-          },
-          reviewedBy: {
-            not: null
+    // Fetch directly from database (no caching for admin)
+    // Get all articles that have been reviewed by any admin
+    const reviewedArticles = await prisma.article.findMany({
+      where: {
+        status: {
+          in: ['approved', 'rejected', 'published']
+        },
+        reviewedBy: {
+          not: null
+        }
+      },
+      orderBy: { reviewedAt: 'desc' },
+      skip,
+      take: limit,
+      include: {
+        author: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            email: true,
+            role: true
           }
         },
-        orderBy: { reviewedAt: 'desc' },
-        skip,
-        take: limit,
-        include: {
-          author: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-              email: true,
-              role: true
-            }
-          },
-          reviewer: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-              role: true
-            }
+        reviewer: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            role: true
           }
         }
-      });
+      }
+    });
 
-      const totalCount = await prisma.article.count({
-        where: {
-          status: {
-            in: ['approved', 'rejected', 'published']
-          },
-          reviewedBy: {
-            not: null
-          }
+    const totalCount = await prisma.article.count({
+      where: {
+        status: {
+          in: ['approved', 'rejected', 'published']
+        },
+        reviewedBy: {
+          not: null
         }
-      });
+      }
+    });
 
-      // Transform data for frontend
-      const reviewHistory = reviewedArticles.map(article => {
-        const isCreatedByAdmin = article.authorId === userId;
-        const isReviewedByAdmin = article.reviewedBy === userId;
-        
-        return {
-          id: article.id,
-          articleId: article.id,
-          articleTitle: article.title,
-          action: article.status === 'published' ? 'approved' : article.status,
-          reviewedAt: article.reviewedAt || article.publishedAt || article.createdAt,
-          sortDate: article.reviewedAt || article.publishedAt || article.createdAt,
-          reviewerName: isCreatedByAdmin ? 'Self (Created)' : (article.reviewer?.displayName || article.reviewer?.username || 'Admin'),
-          comments: article.rejectionReason || (article.status === 'approved' || article.status === 'published' ? 
-            (isCreatedByAdmin ? 'Article created and published directly' : 'Article approved for publication') : 'No comments'),
-          authorName: article.author?.displayName || article.author?.username || 'Unknown',
-          category: article.category,
-          createdAt: article.createdAt
-        };
-      });
-
+    // Transform data for frontend
+    const reviewHistory = reviewedArticles.map(article => {
+      const isCreatedByAdmin = article.authorId === userId;
+      const isReviewedByAdmin = article.reviewedBy === userId;
+      
       return {
-        reviewHistory,
-        pagination: {
-          page,
-          limit,
-          total: totalCount,
-          pages: Math.ceil(totalCount / limit)
-        }
+        id: article.id,
+        articleId: article.id,
+        articleTitle: article.title,
+        action: article.status === 'published' ? 'approved' : article.status,
+        reviewedAt: article.reviewedAt || article.publishedAt || article.createdAt,
+        sortDate: article.reviewedAt || article.publishedAt || article.createdAt,
+        reviewerName: isCreatedByAdmin ? 'Self (Created)' : (article.reviewer?.displayName || article.reviewer?.username || 'Admin'),
+        comments: article.rejectionReason || (article.status === 'approved' || article.status === 'published' ? 
+          (isCreatedByAdmin ? 'Article created and published directly' : 'Article approved for publication') : 'No comments'),
+        authorName: article.author?.displayName || article.author?.username || 'Unknown',
+        category: article.category,
+        createdAt: article.createdAt
       };
-    }, 300); // 5 minutes TTL
+    });
+
+    const result = {
+      reviewHistory,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        pages: Math.ceil(totalCount / limit)
+      }
+    };
 
     res.json({
       success: true,

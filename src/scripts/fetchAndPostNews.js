@@ -42,13 +42,22 @@ async function fetchAndPostNews(options = {}) {
       console.log(`\n📰 Fetching ${category} news...`);
 
       try {
-        // Fetch news from ALL RSS providers (all articles within last 6 hours)
-        const fetchResult = await newsService.fetchNews({
+        // Special handling for SPORT category
+        let fetchOptions = {
           category,
           maxArticles: maxArticlesPerCategory,
-          articlesPerProvider: articlesPerProvider, // null = fetch all articles
+          articlesPerProvider: articlesPerProvider,
           hoursAgo: 6 // Only get articles from last 6 hours
-        });
+        };
+        
+        // For SPORT: ESPN gets 5 per category, BBC Sport gets 5
+        if (category === 'SPORT') {
+          fetchOptions.maxArticles = 1000; // High limit to get all ESPN categories
+          console.log(`   📋 SPORT category: ESPN (5 per category) + BBC Sport (5)`);
+        }
+        
+        // Fetch news from ALL RSS providers (all articles within last 6 hours)
+        const fetchResult = await newsService.fetchNews(fetchOptions);
 
         if (fetchResult.success && fetchResult.articles.length > 0) {
           console.log(`✅ Fetched ${fetchResult.articles.length} articles from ${fetchResult.provider} (${articlesPerProvider} per provider)`);
@@ -57,8 +66,8 @@ async function fetchAndPostNews(options = {}) {
           }
 
           if (!dryRun) {
-            // Process and create articles
-            const processResult = await articleProcessor.processArticles(fetchResult.articles);
+            // Process and create articles (pass category for SPORT filtering)
+            const processResult = await articleProcessor.processArticles(fetchResult.articles, category);
 
             totalFetched += processResult.total;
             totalCreated += processResult.created;

@@ -182,9 +182,20 @@ const providers = [
       // Politics
       { url: 'https://feeds.bbci.co.uk/news/politics/rss.xml', sourceName: 'BBC Politics', category: 'POLITICS' },
       
-      // Sports
+      // Sports - ESPN Categories (5 articles each from last 6 hours)
+      { url: 'https://www.espn.com/espn/rss/news', sourceName: 'ESPN', category: 'SPORT', sportCategory: 'general' },
+      { url: 'https://www.espn.com/espn/rss/nfl/news', sourceName: 'ESPN NFL', category: 'SPORT', sportCategory: 'nfl' },
+      { url: 'https://www.espn.com/espn/rss/nba/news', sourceName: 'ESPN NBA', category: 'SPORT', sportCategory: 'nba' },
+      { url: 'https://www.espn.com/espn/rss/ncf/news', sourceName: 'ESPN College Football', category: 'SPORT', sportCategory: 'college-football' },
+      { url: 'https://www.espn.com/espn/rss/ncb/news', sourceName: 'ESPN College Basketball', category: 'SPORT', sportCategory: 'college-basketball' },
+      { url: 'https://www.espn.com/espn/rss/mlb/news', sourceName: 'ESPN MLB', category: 'SPORT', sportCategory: 'mlb' },
+      { url: 'https://www.espn.com/espn/rss/nhl/news', sourceName: 'ESPN NHL', category: 'SPORT', sportCategory: 'nhl' },
+      { url: 'https://www.espn.com/espn/rss/soccer/news', sourceName: 'ESPN Soccer', category: 'SPORT', sportCategory: 'soccer' },
+      { url: 'https://www.espn.com/espn/rss/tennis/news', sourceName: 'ESPN Tennis', category: 'SPORT', sportCategory: 'tennis' },
+      { url: 'https://www.espn.com/espn/rss/golf/news', sourceName: 'ESPN Golf', category: 'SPORT', sportCategory: 'golf' },
+      
+      // Sports - BBC (5 articles from last 6 hours)
       { url: 'https://feeds.bbci.co.uk/sport/rss.xml', sourceName: 'BBC Sport', category: 'SPORT' },
-      { url: 'https://www.espn.com/espn/rss/news', sourceName: 'ESPN', category: 'SPORT' },
       
       // Entertainment
       { url: 'https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml', sourceName: 'BBC Entertainment', category: 'ENTERTAINMENT' },

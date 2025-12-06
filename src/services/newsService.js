@@ -373,12 +373,24 @@ class NewsService {
     fromDate.setHours(fromDate.getHours() - timeWindowHours);
 
     // Filter feeds by category if specified
-    const relevantFeeds = category
+    let relevantFeeds = category
       ? feeds.filter(feed => feed.category === category.toUpperCase())
       : feeds;
 
-    // Limit number of feeds to process
-    const feedsToProcess = relevantFeeds.slice(0, 5);
+    // Special handling for SPORT category: Process all ESPN feeds (5 articles each) + BBC Sport
+    if (category === 'SPORT') {
+      // Separate ESPN feeds and BBC feeds
+      const espnFeeds = relevantFeeds.filter(feed => feed.sourceName && feed.sourceName.includes('ESPN'));
+      const bbcFeeds = relevantFeeds.filter(feed => feed.sourceName && feed.sourceName.includes('BBC'));
+      
+      // Process all ESPN feeds (each will get 5 articles max)
+      relevantFeeds = [...espnFeeds, ...bbcFeeds];
+    } else {
+      // For other categories, limit to 5 feeds
+      relevantFeeds = relevantFeeds.slice(0, 5);
+    }
+    
+    const feedsToProcess = relevantFeeds;
 
     for (const feed of feedsToProcess) {
       try {
@@ -424,8 +436,23 @@ class NewsService {
           }
         });
 
-        // Collect all articles from all feeds (don't limit per feed)
-        for (const item of feedArticles) {
+        // For SPORT category: Fetch MORE articles initially (we'll filter by image later)
+        // This ensures we get 5 articles WITH images per ESPN category
+        // ESPN feeds: Fetch 15 articles (to account for some not having images)
+        // BBC Sport: Fetch 10 articles (to account for some not having images)
+        // For other categories, use maxArticles
+        let maxPerFeed = maxArticles;
+        if (category === 'SPORT') {
+          if (feed.sourceName && feed.sourceName.includes('ESPN')) {
+            maxPerFeed = 15; // Fetch 15, will filter to 5 with images later
+          } else if (feed.sourceName && feed.sourceName.includes('BBC')) {
+            maxPerFeed = 10; // Fetch 10, will filter to 5 with images later
+          }
+        }
+        const articlesToProcess = feedArticles.slice(0, maxPerFeed);
+
+        // Collect articles from this feed
+        for (const item of articlesToProcess) {
           const description = item.contentSnippet || item.description || '';
           let content = item.content || item.contentSnippet || item.description || '';
           const url = item.link || item.guid || '';
@@ -443,12 +470,23 @@ class NewsService {
           // Extract author from RSS item (can be in various fields)
           const author = item['dc:creator'] || item.creator || item.author || item['dc:author'] || null;
           
+          // Extract image from RSS first
+          let imageUrl = this.extractImageFromRSSItem(item);
+          
+          // If no image in RSS and URL is available, try to fetch from article page
+          // Only do this for sources that typically don't include images in RSS (like ESPN)
+          if (!imageUrl && url && (feed.sourceName === 'ESPN' || feed.name === 'ESPN')) {
+            // Note: We'll fetch image from article page in articleProcessor to avoid slowing down RSS parsing
+            // For now, just mark that we need to fetch it
+            imageUrl = null; // Will be fetched later in articleProcessor
+          }
+          
           articles.push({
             title: item.title || '',
             description: description,
             content: content,
             url: url,
-            imageUrl: this.extractImageFromRSSItem(item),
+            imageUrl: imageUrl,
             publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
             author: author ? (typeof author === 'string' ? author.trim() : author.name || author) : null,
             sourceName: feed.sourceName || feed.name,
@@ -479,12 +517,18 @@ class NewsService {
       return dateB - dateA; // Newest first
     });
 
-    // Limit to 10 articles per category maximum
-    // If there are less than 10, return whatever is available
-    const limit = 10;
-    const limitedArticles = articles.slice(0, limit);
-
-    console.log(`📰 RSS Feed: Found ${articles.length} articles from past ${timeWindowHours}h, returning ${limitedArticles.length} most recent for category ${category || 'ALL'}`);
+    // For SPORT category, we want all ESPN articles (5 per category) + BBC Sport (5)
+    // For other categories, limit to maxArticles
+    let limitedArticles;
+    if (category === 'SPORT') {
+      // Don't limit - we want all ESPN categories (5 each) + BBC Sport (5)
+      limitedArticles = articles;
+      console.log(`📰 RSS Feed: Found ${articles.length} articles from past ${timeWindowHours}h for SPORT category (ESPN: 5 per category + BBC Sport: 5)`);
+    } else {
+      // Limit to maxArticles for other categories
+      limitedArticles = articles.slice(0, maxArticles);
+      console.log(`📰 RSS Feed: Found ${articles.length} articles from past ${timeWindowHours}h, returning ${limitedArticles.length} most recent for category ${category || 'ALL'}`);
+    }
 
     return limitedArticles;
   }
