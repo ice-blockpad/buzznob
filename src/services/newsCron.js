@@ -70,7 +70,7 @@ class NewsCron {
       try {
         const result = await fetchAndPostNews({
           categories: ['DEFI', 'FINANCE', 'POLITICS', 'SPORT', 'ENTERTAINMENT', 'WEATHER', 'TECHNOLOGY', 'BUSINESS', 'HEALTH', 'SCIENCE', 'OTHERS'],
-          maxArticlesPerCategory: parseInt(process.env.NEWS_MAX_ARTICLES_PER_CATEGORY) || 5,
+          maxArticlesPerCategory: parseInt(process.env.NEWS_MAX_ARTICLES_PER_CATEGORY) || 10,
           dryRun: false
         });
 
@@ -145,7 +145,7 @@ class NewsCron {
     try {
       const result = await fetchAndPostNews({
         categories: ['GENERAL', 'CRYPTO', 'SPORTS', 'ENTERTAINMENT'],
-        maxArticlesPerCategory: 5,
+        maxArticlesPerCategory: 10,
         dryRun: false
       });
       return result;

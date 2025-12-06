@@ -16,7 +16,7 @@ const apiUsageTracker = require('../services/apiUsageTracker');
 async function fetchAndPostNews(options = {}) {
   const {
     categories = ['DEFI', 'FINANCE', 'POLITICS', 'SPORT', 'ENTERTAINMENT', 'WEATHER', 'TECHNOLOGY', 'BUSINESS', 'OTHERS'], // HEALTH and SCIENCE removed - not using RSS for these
-    maxArticlesPerCategory = 1000, // Fetch all articles within time window
+    maxArticlesPerCategory = 10, // Maximum 10 articles per category from past 6 hours
     articlesPerProvider = null, // No limit - fetch all articles from each provider
     dryRun = false
   } = options;
@@ -146,7 +146,7 @@ if (require.main === module) {
 
   fetchAndPostNews({
     categories,
-    maxArticlesPerCategory: 5,
+    maxArticlesPerCategory: 10,
     dryRun
   })
     .then(result => {

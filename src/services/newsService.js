@@ -359,17 +359,18 @@ class NewsService {
 
   /**
    * Fetch news from direct RSS feeds
+   * Limits to 10 most recent articles per category from the past 6 hours
    */
   async fetchFromRSSFeeds(provider, category, maxArticles, hoursAgo = null) {
     const articles = [];
     const feeds = provider.feeds || [];
 
-    // Calculate date threshold if hoursAgo is specified
-    let fromDate = null;
-    if (hoursAgo !== null && hoursAgo > 0) {
-      fromDate = new Date();
-      fromDate.setHours(fromDate.getHours() - hoursAgo);
-    }
+    // Default to 6 hours if not specified
+    const timeWindowHours = hoursAgo !== null && hoursAgo > 0 ? hoursAgo : 6;
+    
+    // Calculate date threshold - always filter by 6 hours
+    const fromDate = new Date();
+    fromDate.setHours(fromDate.getHours() - timeWindowHours);
 
     // Filter feeds by category if specified
     const relevantFeeds = category
@@ -409,23 +410,21 @@ class NewsService {
           throw lastError || new Error('Failed to fetch RSS feed');
         }
         
-        let feedArticles = feedData.items;
+        let feedArticles = feedData.items || [];
 
-        // Filter by date if specified
-        if (fromDate) {
-          feedArticles = feedArticles.filter(item => {
-            if (!item.pubDate) return false;
+        // Always filter by date (past 6 hours)
+        feedArticles = feedArticles.filter(item => {
+          if (!item.pubDate) return false;
+          try {
             const pubDate = new Date(item.pubDate);
+            if (isNaN(pubDate.getTime())) return false;
             return pubDate >= fromDate;
-          });
-        }
+          } catch (error) {
+            return false;
+          }
+        });
 
-        // Only limit if maxArticles is reasonable (not unlimited)
-        if (maxArticles < 1000) {
-          feedArticles = feedArticles.slice(0, Math.ceil(maxArticles / feedsToProcess.length));
-        }
-        // If maxArticles is 1000+, fetch all articles from the feed
-
+        // Collect all articles from all feeds (don't limit per feed)
         for (const item of feedArticles) {
           const description = item.contentSnippet || item.description || '';
           let content = item.content || item.contentSnippet || item.description || '';
@@ -473,12 +472,21 @@ class NewsService {
       }
     }
 
-    // Only limit if maxArticles is reasonable (not unlimited)
-    if (maxArticles < 1000) {
-      return articles.slice(0, maxArticles);
-    }
-    // If maxArticles is 1000+, return all articles
-    return articles;
+    // Sort articles by published date (newest first)
+    articles.sort((a, b) => {
+      const dateA = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+      const dateB = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+      return dateB - dateA; // Newest first
+    });
+
+    // Limit to 10 articles per category maximum
+    // If there are less than 10, return whatever is available
+    const limit = 10;
+    const limitedArticles = articles.slice(0, limit);
+
+    console.log(`📰 RSS Feed: Found ${articles.length} articles from past ${timeWindowHours}h, returning ${limitedArticles.length} most recent for category ${category || 'ALL'}`);
+
+    return limitedArticles;
   }
 
   /**
