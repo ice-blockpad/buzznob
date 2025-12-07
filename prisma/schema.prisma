@@ -115,6 +115,7 @@ model Article {
   @@index([authorId, status]) // For user's articles by status
   @@index([publishedAt]) // For sorting published articles
   @@index([createdAt]) // For sorting by creation date
+  @@unique([sourceUrl]) // Prevent duplicate articles by source URL (allows multiple nulls)
   @@map("articles")
 }
 

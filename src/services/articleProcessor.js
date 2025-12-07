@@ -10,26 +10,111 @@ const articleScraper = require('./articleScraper');
 
 class ArticleProcessor {
   /**
-   * Check if article already exists (duplicate detection)
+   * Normalize URL to handle variations (query params, trailing slashes, etc.)
+   * This helps catch duplicates even when URLs have slight differences
    */
-  async isDuplicate(sourceUrl) {
-    if (!sourceUrl) return false;
-
+  normalizeUrl(url) {
+    if (!url) return null;
+    
     try {
-      const existing = await prisma.article.findFirst({
-        where: {
-          sourceUrl: sourceUrl
-        },
-        select: {
-          id: true
-        }
+      const urlObj = new URL(url);
+      // Remove common tracking/analytics query parameters
+      const trackingParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 
+                              'ref', 'source', 'fbclid', 'gclid', 'twclid', 'mc_cid', 'mc_eid',
+                              '_ga', '_gid', 'campaign_id', 'share', 'from', 'rss'];
+      
+      trackingParams.forEach(param => {
+        urlObj.searchParams.delete(param);
       });
-
-      return !!existing;
+      
+      // Normalize pathname (remove trailing slash)
+      urlObj.pathname = urlObj.pathname.replace(/\/$/, '');
+      
+      // Return normalized URL
+      return urlObj.toString();
     } catch (error) {
-      console.error('Error checking duplicate:', error);
-      return false; // On error, assume not duplicate (fail open)
+      // If URL parsing fails, return original
+      return url;
     }
+  }
+
+  /**
+   * Check if article already exists (duplicate detection)
+   * Uses URL normalization and title-based fallback for null URLs
+   */
+  async isDuplicate(sourceUrl, title = null) {
+    // If we have a URL, normalize it and check
+    if (sourceUrl) {
+      const normalizedUrl = this.normalizeUrl(sourceUrl);
+      
+      try {
+        // Check for exact match first
+        const exactMatch = await prisma.article.findFirst({
+          where: {
+            sourceUrl: normalizedUrl
+          },
+          select: {
+            id: true
+          }
+        });
+        
+        if (exactMatch) return true;
+        
+        // Also check for original URL (in case normalization changed it)
+        if (normalizedUrl !== sourceUrl) {
+          const originalMatch = await prisma.article.findFirst({
+            where: {
+              sourceUrl: sourceUrl
+            },
+            select: {
+              id: true
+            }
+          });
+          
+          if (originalMatch) return true;
+        }
+      } catch (error) {
+        // If unique constraint violation, it's a duplicate
+        if (error.code === 'P2002') {
+          return true;
+        }
+        console.error('Error checking duplicate by URL:', error);
+      }
+    }
+    
+    // Fallback: Check by title if URL is null/undefined
+    // Only check title for articles created in the last 24 hours to avoid false positives
+    if (!sourceUrl && title) {
+      try {
+        const oneDayAgo = new Date();
+        oneDayAgo.setHours(oneDayAgo.getHours() - 24);
+        
+        const titleMatch = await prisma.article.findFirst({
+          where: {
+            title: {
+              equals: title.trim(),
+              mode: 'insensitive' // Case-insensitive match
+            },
+            createdAt: {
+              gte: oneDayAgo
+            },
+            status: 'pending' // Only check pending articles
+          },
+          select: {
+            id: true
+          }
+        });
+        
+        if (titleMatch) {
+          console.log(`⚠️  Potential duplicate detected by title: ${title.substring(0, 50)}...`);
+          return true;
+        }
+      } catch (error) {
+        console.error('Error checking duplicate by title:', error);
+      }
+    }
+    
+    return false;
   }
 
   /**
@@ -115,6 +200,7 @@ class ArticleProcessor {
 
   /**
    * Process a single news article and create it in database
+   * Uses transaction to prevent race conditions
    */
   async processArticle(newsArticle) {
     try {
@@ -123,17 +209,18 @@ class ArticleProcessor {
         throw new Error('Article missing required fields (title or content)');
       }
 
-      // Check for duplicates
-      if (newsArticle.url) {
-        const isDup = await this.isDuplicate(newsArticle.url);
-        if (isDup) {
-          console.log(`⏭️  Skipping duplicate article: ${newsArticle.title.substring(0, 50)}...`);
-          return {
-            success: false,
-            reason: 'duplicate',
-            article: null
-          };
-        }
+      // Normalize URL for duplicate checking
+      const normalizedUrl = newsArticle.url ? this.normalizeUrl(newsArticle.url) : null;
+
+      // Check for duplicates (with title fallback for null URLs)
+      const isDup = await this.isDuplicate(normalizedUrl || newsArticle.url, newsArticle.title);
+      if (isDup) {
+        console.log(`⏭️  Skipping duplicate article: ${newsArticle.title.substring(0, 50)}...`);
+        return {
+          success: false,
+          reason: 'duplicate',
+          article: null
+        };
       }
 
       // Get enhanced content (try to fetch full content, ensure minimum 1000 chars)
@@ -213,28 +300,89 @@ class ArticleProcessor {
       // Use extracted author or fallback to original author from RSS
       const finalAuthor = author || newsArticle.author || null;
 
-      // Create article with pending status
-      const article = await prisma.article.create({
-        data: {
-          title: newsArticle.title.trim(),
-          content: cleanedContent,
-          category: category.toUpperCase(),
-          sourceUrl: newsArticle.url || null,
-          sourceName: newsArticle.sourceName || 'Automated News',
-          pointsValue: 10, // Default points value
-          isFeatured: false,
-          imageUrl: imageUrl,
-          imageData: null, // We use imageUrl instead of base64
-          imageType: imageUrl ? 'url' : null,
-          status: 'pending', // Always pending for admin review
-          authorId: authorId, // Can be null if no admin exists
-          publishedAt: null, // Will be set when admin approves
-          originalAuthor: finalAuthor, // Author from RSS or article page
-          originalPublishedAt: newsArticle.publishedAt || null // Original publication date from source
-        }
-      });
+      // Use normalized URL for storage (prevents duplicates with URL variations)
+      const urlToStore = normalizedUrl || newsArticle.url || null;
 
-      console.log(`✅ Created article: ${article.title.substring(0, 50)}... (ID: ${article.id})`);
+      // Create article with pending status using transaction to prevent race conditions
+      // If another process creates the same article between our duplicate check and create,
+      // the unique constraint will catch it
+      let article;
+      try {
+        article = await prisma.$transaction(async (tx) => {
+          // Double-check for duplicates within transaction (prevents race condition)
+          if (urlToStore) {
+            const existingInTx = await tx.article.findFirst({
+              where: {
+                sourceUrl: urlToStore
+              },
+              select: {
+                id: true
+              }
+            });
+            
+            if (existingInTx) {
+              throw new Error('DUPLICATE_DETECTED_IN_TX');
+            }
+          }
+          
+          // Create article
+          return await tx.article.create({
+            data: {
+              title: newsArticle.title.trim(),
+              content: cleanedContent,
+              category: category.toUpperCase(),
+              sourceUrl: urlToStore, // Use normalized URL
+              sourceName: newsArticle.sourceName || 'Automated News',
+              pointsValue: 10, // Default points value
+              isFeatured: false,
+              imageUrl: imageUrl,
+              imageData: null, // We use imageUrl instead of base64
+              imageType: imageUrl ? 'url' : null,
+              status: 'pending', // Always pending for admin review
+              authorId: authorId, // Can be null if no admin exists
+              publishedAt: null, // Will be set when admin approves
+              originalAuthor: finalAuthor, // Author from RSS or article page
+              originalPublishedAt: newsArticle.publishedAt || null // Original publication date from source
+            }
+          });
+        }, {
+          maxWait: 10000, // 10 seconds max wait to acquire transaction
+          timeout: 20000, // 20 seconds timeout for transaction execution
+        });
+        
+        console.log(`✅ Created article: ${article.title.substring(0, 50)}... (ID: ${article.id})`);
+      } catch (error) {
+        // Handle duplicate detected in transaction or unique constraint violation
+        if (error.message === 'DUPLICATE_DETECTED_IN_TX' || error.code === 'P2002') {
+          console.log(`⏭️  Skipping duplicate article (race condition caught): ${newsArticle.title.substring(0, 50)}...`);
+          return {
+            success: false,
+            reason: 'duplicate',
+            article: null
+          };
+        }
+        // Handle transaction timeout - treat as potential duplicate or retry
+        if (error.code === 'P2028') {
+          console.log(`⏭️  Transaction timeout (likely duplicate or database busy): ${newsArticle.title.substring(0, 50)}...`);
+          // Check one more time if it's a duplicate
+          const isDup = await this.isDuplicate(normalizedUrl || newsArticle.url, newsArticle.title);
+          if (isDup) {
+            return {
+              success: false,
+              reason: 'duplicate',
+              article: null
+            };
+          }
+          // If not duplicate, return error (database might be busy)
+          return {
+            success: false,
+            reason: 'error',
+            error: 'Transaction timeout - database may be busy',
+            article: null
+          };
+        }
+        throw error; // Re-throw other errors
+      }
 
       return {
         success: true,

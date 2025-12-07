@@ -6,11 +6,13 @@
 const cron = require('node-cron');
 const fetchAndPostNews = require('../scripts/fetchAndPostNews');
 const apiUsageTracker = require('./apiUsageTracker');
+const distributedLock = require('./distributedLock');
 
 class NewsCron {
   constructor() {
     this.jobs = [];
     this.isRunning = false;
+    this.lock = distributedLock; // Use the exported instance directly
   }
 
   /**
@@ -50,6 +52,7 @@ class NewsCron {
 
   /**
    * Start news fetching job
+   * Uses distributed lock to prevent multiple instances from running simultaneously
    */
   startNewsFetching() {
     // Get schedule from environment or use default (every 6 hours)
@@ -59,8 +62,19 @@ class NewsCron {
     const scheduleDesc = this.getScheduleDescription(schedule);
 
     const job = cron.schedule(schedule, async () => {
+      // Use distributed lock to prevent multiple instances from running simultaneously
+      const lockKey = 'news_fetch_cron';
+      const lockAcquired = await this.lock.acquireLock(lockKey, 3600); // 1 hour lock (should be enough for news fetch)
+      
+      if (!lockAcquired) {
+        console.log('⏭️  News fetching already in progress on another instance, skipping...');
+        return;
+      }
+
+      // Also check local flag (redundant but helps with logging)
       if (this.isRunning) {
-        console.log('⏭️  News fetching already in progress, skipping...');
+        console.log('⏭️  News fetching already in progress locally, skipping...');
+        await this.lock.releaseLock(lockKey);
         return;
       }
 
@@ -83,6 +97,8 @@ class NewsCron {
         console.error('❌ Error in scheduled news fetch:', error);
       } finally {
         this.isRunning = false;
+        // Release distributed lock
+        await this.lock.releaseLock(lockKey);
       }
     }, {
       scheduled: true,
@@ -135,10 +151,20 @@ class NewsCron {
 
   /**
    * Manually trigger news fetch (for testing)
+   * Uses distributed lock to prevent conflicts with scheduled jobs
    */
   async triggerManualFetch() {
+    // Use distributed lock
+    const lockKey = 'news_fetch_manual';
+    const lockAcquired = await this.lock.acquireLock(lockKey, 3600); // 1 hour lock
+    
+    if (!lockAcquired) {
+      throw new Error('News fetch already in progress on another instance');
+    }
+
     if (this.isRunning) {
-      throw new Error('News fetch already in progress');
+      await this.lock.releaseLock(lockKey);
+      throw new Error('News fetch already in progress locally');
     }
 
     this.isRunning = true;
@@ -151,6 +177,7 @@ class NewsCron {
       return result;
     } finally {
       this.isRunning = false;
+      await this.lock.releaseLock(lockKey);
     }
   }
 }
