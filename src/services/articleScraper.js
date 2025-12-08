@@ -27,7 +27,11 @@ class ArticleScraper {
                         $('meta[name="article:author"]').attr('content') ||
                         $('meta[property="og:article:author"]').attr('content');
       if (metaAuthor) {
-        return metaAuthor.trim();
+        const trimmed = metaAuthor.trim();
+        // Filter out URLs and social media links (BBC often puts Facebook URLs here)
+        if (!trimmed.match(/^https?:\/\//) && !trimmed.match(/facebook|twitter|instagram|linkedin/i)) {
+          return trimmed;
+        }
       }
       
       // Priority 2: JSON-LD structured data
@@ -35,22 +39,51 @@ class ArticleScraper {
       for (let i = 0; i < jsonLdScripts.length; i++) {
         try {
           const jsonData = JSON.parse($(jsonLdScripts[i]).html());
+          
+          // Check direct author field
           if (jsonData.author) {
             if (typeof jsonData.author === 'string') {
               return jsonData.author.trim();
             } else if (jsonData.author.name) {
               return jsonData.author.name.trim();
+            } else if (Array.isArray(jsonData.author) && jsonData.author.length > 0) {
+              const firstAuthor = jsonData.author[0];
+              if (typeof firstAuthor === 'string') {
+                return firstAuthor.trim();
+              } else if (firstAuthor.name) {
+                return firstAuthor.name.trim();
+              }
             }
           }
-          // Check for @graph array (common in structured data)
+          
+          // Check for @graph array (common in structured data, especially BBC)
           if (jsonData['@graph']) {
             for (const item of jsonData['@graph']) {
-              if (item.author) {
-                if (typeof item.author === 'string') {
-                  return item.author.trim();
-                } else if (item.author.name) {
-                  return item.author.name.trim();
+              if (item['@type'] === 'NewsArticle' || item['@type'] === 'Article') {
+                if (item.author) {
+                  if (typeof item.author === 'string') {
+                    return item.author.trim();
+                  } else if (item.author.name) {
+                    return item.author.name.trim();
+                  } else if (Array.isArray(item.author) && item.author.length > 0) {
+                    const firstAuthor = item.author[0];
+                    if (typeof firstAuthor === 'string') {
+                      return firstAuthor.trim();
+                    } else if (firstAuthor.name) {
+                      return firstAuthor.name.trim();
+                    }
+                  }
                 }
+              }
+            }
+          }
+          
+          // Also check for Person type in @graph (BBC sometimes uses this)
+          if (jsonData['@graph']) {
+            for (const item of jsonData['@graph']) {
+              if (item['@type'] === 'Person' && item.name) {
+                // This might be the author
+                return item.name.trim();
               }
             }
           }
@@ -72,12 +105,82 @@ class ArticleScraper {
         }
       }
       
-      // BBC specific
+      // BBC specific - more comprehensive extraction
       if (urlLower.includes('bbc.com') || urlLower.includes('bbc.co.uk')) {
-        const bbcAuthor = $('[data-component="byline"]').text() ||
-                         $('.byline').text();
-        if (bbcAuthor && bbcAuthor.trim().length > 0) {
-          return bbcAuthor.trim();
+        // Priority 1: BBC uses .byline-link-text for author name (most reliable)
+        const bylineLinkText = $('.byline-link-text').first();
+        if (bylineLinkText.length > 0) {
+          let authorText = bylineLinkText.text().trim();
+          if (authorText.length > 2 && authorText.length < 100) {
+            return authorText;
+          }
+        }
+        
+        // Priority 2: BBC uses [data-component="byline-block"] for full byline
+        const bylineBlock = $('[data-component="byline-block"]').first();
+        if (bylineBlock.length > 0) {
+          let authorText = bylineBlock.text().trim();
+          // BBC format: "ByAuthor NameRole/Location" or "By Author Name Role"
+          // Extract author name (usually first 2-3 capitalized words after "By")
+          authorText = authorText.replace(/^By\s*/i, '');
+          // Match capitalized name pattern (2-3 words)
+          const nameMatch = authorText.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})/);
+          if (nameMatch && nameMatch[1]) {
+            authorText = nameMatch[1].trim();
+            if (authorText.length > 2 && authorText.length < 100) {
+              return authorText;
+            }
+          }
+        }
+        
+        // Priority 3: Try other BBC-specific selectors
+        const bbcSelectors = [
+          '[data-component="byline"]',
+          '[data-component="Byline"]',
+          '.byline',
+          '[class*="BylineComponentWrapper"]',
+          '[class*="byline"]',
+          '[class*="Byline"]',
+          'article [data-component="byline-block"]',
+          'article .byline-link-text',
+          '[data-testid="byline"]'
+        ];
+        
+        for (const selector of bbcSelectors) {
+          const element = $(selector).first();
+          if (element.length > 0) {
+            let authorText = element.text().trim();
+            // Clean up common BBC byline patterns
+            authorText = authorText
+              .replace(/^By\s+/i, '')
+              .replace(/^BBC\s+News/i, '')
+              .replace(/\s*\|.*$/, '') // Remove everything after pipe
+              .replace(/\s*,\s*.*$/, '') // Remove location/role after comma
+              .trim();
+            
+            // Extract just the name part (2-3 capitalized words)
+            const nameMatch = authorText.match(/^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})/);
+            if (nameMatch && nameMatch[1]) {
+              authorText = nameMatch[1].trim();
+            }
+            
+            if (authorText.length > 2 && authorText.length < 100 && !authorText.match(/^(BBC|News|Sport|Technology|Business|Politics|Correspondent|Reporter|Journalist)/i)) {
+              return authorText;
+            }
+          }
+        }
+        
+        // Priority 4: Check for author in article header/meta
+        const articleHeader = $('article header, [role="article"] header, .article-header').first();
+        if (articleHeader.length > 0) {
+          const headerText = articleHeader.text();
+          const authorMatch = headerText.match(/By\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})/);
+          if (authorMatch && authorMatch[1]) {
+            const author = authorMatch[1].trim();
+            if (author.length > 2 && author.length < 100) {
+              return author;
+            }
+          }
         }
       }
       

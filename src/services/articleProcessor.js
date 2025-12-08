@@ -257,14 +257,32 @@ class ArticleProcessor {
       let author = newsArticle.author;
       
       // SKIP ARTICLES WITHOUT IMAGES (as per requirement)
-      // First try to get image from article page if not in RSS
-      if (!imageUrl && newsArticle.url) {
+      // For Guardian: Always fetch from article page (RSS images are too small - 3-6 KB)
+      // For other sources: Only fetch from article page if no image in RSS
+      const sourceName = newsArticle.sourceName || '';
+      const isGuardian = sourceName.toLowerCase().includes('guardian');
+      
+      if (newsArticle.url) {
         const articleScraper = require('./articleScraper');
-        console.log(`🖼️  No image in RSS, fetching from article page: ${newsArticle.url.substring(0, 60)}...`);
-        const fetchedImageUrl = await articleScraper.fetchImageFromURL(newsArticle.url);
-        if (fetchedImageUrl) {
-          imageUrl = fetchedImageUrl;
-          console.log(`✅ Found image: ${imageUrl}`);
+        if (isGuardian) {
+          // Always fetch from article page for Guardian (better quality)
+          console.log(`🖼️  Guardian article - fetching high-quality image from article page: ${newsArticle.url.substring(0, 60)}...`);
+          const fetchedImageUrl = await articleScraper.fetchImageFromURL(newsArticle.url);
+          if (fetchedImageUrl) {
+            imageUrl = fetchedImageUrl;
+            console.log(`✅ Found high-quality image: ${imageUrl}`);
+          } else if (!imageUrl) {
+            // Fallback to RSS image if article page fetch fails
+            console.log(`⚠️  Could not fetch from article page, using RSS image`);
+          }
+        } else if (!imageUrl) {
+          // For other sources, only fetch if no image in RSS
+          console.log(`🖼️  No image in RSS, fetching from article page: ${newsArticle.url.substring(0, 60)}...`);
+          const fetchedImageUrl = await articleScraper.fetchImageFromURL(newsArticle.url);
+          if (fetchedImageUrl) {
+            imageUrl = fetchedImageUrl;
+            console.log(`✅ Found image: ${imageUrl}`);
+          }
         }
       }
       
@@ -281,13 +299,14 @@ class ArticleProcessor {
       // Fetch author from article page if not in RSS
       if (!author && newsArticle.url) {
         const articleScraper = require('./articleScraper');
-        console.log(`👤 Fetching author from article page: ${newsArticle.url.substring(0, 60)}...`);
+        const isBBC = newsArticle.url.toLowerCase().includes('bbc.com') || newsArticle.url.toLowerCase().includes('bbc.co.uk');
+        console.log(`👤 Fetching author from article page: ${newsArticle.url.substring(0, 60)}...${isBBC ? ' (BBC article)' : ''}`);
         const fetchedAuthor = await articleScraper.fetchAuthorFromURL(newsArticle.url);
         if (fetchedAuthor) {
           author = fetchedAuthor;
-          console.log(`✅ Found author: ${author}`);
+          console.log(`✅ Found author: ${author}${isBBC ? ' (from BBC article page)' : ''}`);
         } else {
-          console.log(`⚠️  No author found on article page`);
+          console.log(`⚠️  No author found on article page${isBBC ? ' (BBC article - may not have author)' : ''}`);
         }
       }
 
@@ -295,7 +314,22 @@ class ArticleProcessor {
       const authorId = await this.getSystemAdminId();
 
       // Determine category
-      const category = newsArticle.category || 'GENERAL';
+      // Auto-categorize based on source name if it's more specific than feed category
+      let category = newsArticle.category || 'GENERAL';
+      // sourceName already declared above for image processing
+      
+      // Override category based on source name for better accuracy
+      if (sourceName.includes('BBC Business')) {
+        category = 'BUSINESS';
+      } else if (sourceName.includes('BBC Technology')) {
+        category = 'TECHNOLOGY';
+      } else if (sourceName.includes('BBC Politics')) {
+        category = 'POLITICS';
+      } else if (sourceName.includes('BBC Sport')) {
+        category = 'SPORT';
+      } else if (sourceName.includes('BBC Entertainment')) {
+        category = 'ENTERTAINMENT';
+      }
       
       // Use extracted author or fallback to original author from RSS
       const finalAuthor = author || newsArticle.author || null;
@@ -415,7 +449,7 @@ class ArticleProcessor {
       articles: []
     };
 
-    // For SPORT category, track articles created per source to limit to 5 per ESPN category
+    // Track articles created per source for categories with per-source limits (SPORT, BUSINESS, WEATHER, TECHNOLOGY, SCIENCE, ENTERTAINMENT, DEFI, POLITICS, FINANCE, HEALTH)
     const createdBySource = {};
     
     for (const newsArticle of newsArticles) {
@@ -423,20 +457,150 @@ class ArticleProcessor {
       
       // For SPORT category: Check if we've already reached limit for this source
       if (category === 'SPORT') {
+        // Get custom limit from article if specified, otherwise use default (5)
+        const customLimit = newsArticle.maxArticles || null;
+        const limit = customLimit || 5;
+        
         if (sourceName.includes('ESPN')) {
           const count = createdBySource[sourceName] || 0;
-          if (count >= 5) {
-            // Already have 5 articles with images from this ESPN category, skip
+          if (count >= limit) {
+            // Already have enough articles with images from this ESPN category, skip
             results.skipped++;
             continue;
           }
         } else if (sourceName.includes('BBC')) {
           const count = createdBySource[sourceName] || 0;
-          if (count >= 5) {
-            // Already have 5 articles with images from BBC Sport, skip
+          if (count >= limit) {
+            // Already have enough articles with images from BBC Sport, skip
             results.skipped++;
             continue;
           }
+        }
+      }
+      
+      // For BUSINESS category: Check if we've already reached limit for this source
+      if (category === 'BUSINESS') {
+        // Get custom limit from article if specified, otherwise use default (5)
+        const customLimit = newsArticle.maxArticles || null;
+        const limit = customLimit || 5;
+        
+        const count = createdBySource[sourceName] || 0;
+        if (count >= limit) {
+          // Already have enough articles with images from this business source, skip
+          results.skipped++;
+          continue;
+        }
+      }
+      
+      // For WEATHER category: Check if we've already reached limit for this source
+      if (category === 'WEATHER') {
+        // Get custom limit from article if specified, otherwise use default (5)
+        const customLimit = newsArticle.maxArticles || null;
+        const limit = customLimit || 5;
+        
+        const count = createdBySource[sourceName] || 0;
+        if (count >= limit) {
+          // Already have enough articles with images from this weather source, skip
+          results.skipped++;
+          continue;
+        }
+      }
+      
+      // For TECHNOLOGY category: Check if we've already reached limit for this source
+      if (category === 'TECHNOLOGY') {
+        // Get custom limit from article if specified, otherwise use default (5)
+        const customLimit = newsArticle.maxArticles || null;
+        const limit = customLimit || 5;
+        
+        const count = createdBySource[sourceName] || 0;
+        if (count >= limit) {
+          // Already have enough articles with images from this technology source, skip
+          results.skipped++;
+          continue;
+        }
+      }
+      
+      // For SCIENCE category: Check if we've already reached limit for this source
+      if (category === 'SCIENCE') {
+        // Get custom limit from article if specified, otherwise use default (5)
+        const customLimit = newsArticle.maxArticles || null;
+        const limit = customLimit || 5;
+        
+        const count = createdBySource[sourceName] || 0;
+        if (count >= limit) {
+          // Already have enough articles with images from this science source, skip
+          results.skipped++;
+          continue;
+        }
+      }
+      
+      // For ENTERTAINMENT category: Check if we've already reached limit for this source
+      if (category === 'ENTERTAINMENT') {
+        // Get custom limit from article if specified, otherwise use default (5)
+        const customLimit = newsArticle.maxArticles || null;
+        const limit = customLimit || 5;
+        
+        const count = createdBySource[sourceName] || 0;
+        if (count >= limit) {
+          // Already have enough articles with images from this entertainment source, skip
+          results.skipped++;
+          continue;
+        }
+      }
+      
+      // For DEFI category: Check if we've already reached limit for this source
+      if (category === 'DEFI') {
+        // Get custom limit from article if specified, otherwise use default (5)
+        const customLimit = newsArticle.maxArticles || null;
+        const limit = customLimit || 5;
+        
+        const count = createdBySource[sourceName] || 0;
+        if (count >= limit) {
+          // Already have enough articles with images from this crypto source, skip
+          results.skipped++;
+          continue;
+        }
+      }
+      
+      // For POLITICS category: Check if we've already reached limit for this source
+      if (category === 'POLITICS') {
+        // Get custom limit from article if specified, otherwise use default (5)
+        const customLimit = newsArticle.maxArticles || null;
+        const limit = customLimit || 5;
+        
+        const count = createdBySource[sourceName] || 0;
+        if (count >= limit) {
+          // Already have enough articles with images from this politics source, skip
+          results.skipped++;
+          continue;
+        }
+      }
+      
+      // For FINANCE category: Check if we've already reached limit for this source
+      if (category === 'FINANCE') {
+        // Get custom limit from article if specified, otherwise use default (5)
+        const customLimit = newsArticle.maxArticles || null;
+        const limit = customLimit || 5;
+        
+        const count = createdBySource[sourceName] || 0;
+        if (count >= limit) {
+          // Already have enough articles with images from this finance source, skip
+          results.skipped++;
+          continue;
+        }
+      }
+      
+      // For HEALTH category: Check if we've already reached limit for this source
+      if (category === 'HEALTH') {
+        // Get custom limit from article if specified, otherwise use default (5)
+        const customLimit = newsArticle.maxArticles || null;
+        const limit = customLimit || 5;
+        
+        const count = createdBySource[sourceName] || 0;
+        if (count >= limit) {
+          // Already have enough articles with images from this health source, skip
+          results.skipped++;
+          continue;
         }
       }
 
@@ -448,7 +612,7 @@ class ArticleProcessor {
         results.articles.push(result.article);
         
         // Track successful articles per source (only count created articles, not skipped)
-        if (category === 'SPORT') {
+        if (category === 'SPORT' || category === 'BUSINESS' || category === 'WEATHER' || category === 'TECHNOLOGY' || category === 'SCIENCE' || category === 'ENTERTAINMENT' || category === 'DEFI' || category === 'POLITICS' || category === 'FINANCE' || category === 'HEALTH') {
           createdBySource[sourceName] = (createdBySource[sourceName] || 0) + 1;
         }
       } else if (result.reason === 'duplicate') {

@@ -164,48 +164,102 @@ const providers = [
     dailyLimit: Infinity,
     supportsDateFilter: true, // Can filter by pubDate after fetching
     feeds: [
-      // DEFI/Cryptocurrency - Using crypto/cryptocurrency feeds that cover defi topics
-      // These feeds will pick up articles about cryptocurrency, bitcoin, defi, blockchain, etc.
-      { url: 'https://cointelegraph.com/rss', sourceName: 'CoinTelegraph', category: 'DEFI' },
-      { url: 'https://feeds.bbci.co.uk/news/technology/rss.xml', sourceName: 'BBC Technology', category: 'DEFI' },
-      { url: 'https://techcrunch.com/feed/', sourceName: 'TechCrunch', category: 'DEFI' },
-      { url: 'https://feeds.bbci.co.uk/news/business/rss.xml', sourceName: 'BBC Business', category: 'DEFI' },
+      // Cryptocurrency News (5 articles each from last 6 hours)
+      // Covers Bitcoin, Ethereum, DeFi, blockchain, and all cryptocurrency news
+      // Note: Category is 'DEFI' to match frontend, but represents all cryptocurrency news
+      { url: 'https://cointelegraph.com/rss', sourceName: 'CoinTelegraph', category: 'DEFI', maxArticles: 5 },
+      { url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', sourceName: 'CoinDesk', category: 'DEFI', maxArticles: 5 },
+      { url: 'https://decrypt.co/feed', sourceName: 'Decrypt', category: 'DEFI', maxArticles: 5 },
+      { url: 'https://u.today/rss', sourceName: 'U.Today', category: 'DEFI', maxArticles: 5 },
       
-      // Technology
-      { url: 'https://feeds.bbci.co.uk/news/technology/rss.xml', sourceName: 'BBC Technology', category: 'TECHNOLOGY' },
-      { url: 'https://techcrunch.com/feed/', sourceName: 'TechCrunch', category: 'TECHNOLOGY' },
-      
-      // Business/Finance
-      { url: 'https://feeds.bbci.co.uk/news/business/rss.xml', sourceName: 'BBC Business', category: 'BUSINESS' },
-      { url: 'https://feeds.bbci.co.uk/news/business/rss.xml', sourceName: 'BBC Business', category: 'FINANCE' },
-      
-      // Politics
-      { url: 'https://feeds.bbci.co.uk/news/politics/rss.xml', sourceName: 'BBC Politics', category: 'POLITICS' },
+      // Technology (AI, Robotics, Tech News) - 5 articles each from last 6 hours
+      { url: 'https://techcrunch.com/feed/', sourceName: 'TechCrunch', category: 'TECHNOLOGY', maxArticles: 5 },
+      { url: 'https://www.technologyreview.com/feed/', sourceName: 'MIT Technology Review', category: 'TECHNOLOGY', maxArticles: 5 },
+      { url: 'https://spectrum.ieee.org/rss', sourceName: 'IEEE Spectrum', category: 'TECHNOLOGY', maxArticles: 5 },
+      { url: 'https://www.theguardian.com/technology/rss', sourceName: 'The Guardian Technology', category: 'TECHNOLOGY', maxArticles: 5 },
+      { url: 'https://feeds.arstechnica.com/arstechnica/index', sourceName: 'Ars Technica', category: 'TECHNOLOGY', maxArticles: 5 },
       
       // Sports - ESPN Categories (5 articles each from last 6 hours)
-      { url: 'https://www.espn.com/espn/rss/news', sourceName: 'ESPN', category: 'SPORT', sportCategory: 'general' },
-      { url: 'https://www.espn.com/espn/rss/nfl/news', sourceName: 'ESPN NFL', category: 'SPORT', sportCategory: 'nfl' },
       { url: 'https://www.espn.com/espn/rss/nba/news', sourceName: 'ESPN NBA', category: 'SPORT', sportCategory: 'nba' },
-      { url: 'https://www.espn.com/espn/rss/ncf/news', sourceName: 'ESPN College Football', category: 'SPORT', sportCategory: 'college-football' },
-      { url: 'https://www.espn.com/espn/rss/ncb/news', sourceName: 'ESPN College Basketball', category: 'SPORT', sportCategory: 'college-basketball' },
-      { url: 'https://www.espn.com/espn/rss/mlb/news', sourceName: 'ESPN MLB', category: 'SPORT', sportCategory: 'mlb' },
-      { url: 'https://www.espn.com/espn/rss/nhl/news', sourceName: 'ESPN NHL', category: 'SPORT', sportCategory: 'nhl' },
-      { url: 'https://www.espn.com/espn/rss/soccer/news', sourceName: 'ESPN Soccer', category: 'SPORT', sportCategory: 'soccer' },
+      { url: 'https://www.espn.com/espn/rss/soccer/news', sourceName: 'ESPN Soccer', category: 'SPORT', sportCategory: 'soccer', maxArticles: 10 },
       { url: 'https://www.espn.com/espn/rss/tennis/news', sourceName: 'ESPN Tennis', category: 'SPORT', sportCategory: 'tennis' },
       { url: 'https://www.espn.com/espn/rss/golf/news', sourceName: 'ESPN Golf', category: 'SPORT', sportCategory: 'golf' },
+      { url: 'https://www.espn.com/espn/rss/boxing/news', sourceName: 'ESPN Boxing', category: 'SPORT', sportCategory: 'boxing' },
+      { url: 'https://www.espn.com/espn/rss/rpm/news', sourceName: 'ESPN Motorsports', category: 'SPORT', sportCategory: 'motorsports' },
       
-      // Sports - BBC (5 articles from last 6 hours)
-      { url: 'https://feeds.bbci.co.uk/sport/rss.xml', sourceName: 'BBC Sport', category: 'SPORT' },
+      // Sports - BBC (10 articles from last 6 hours)
+      { url: 'https://feeds.bbci.co.uk/sport/rss.xml', sourceName: 'BBC Sport', category: 'SPORT', maxArticles: 10 },
       
-      // Entertainment
-      { url: 'https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml', sourceName: 'BBC Entertainment', category: 'ENTERTAINMENT' },
+      // Business News (5 articles each from last 6 hours)
+      { url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html', sourceName: 'CNBC Business', category: 'BUSINESS', maxArticles: 5 },
+      { url: 'https://www.theguardian.com/business/rss', sourceName: 'The Guardian Business', category: 'BUSINESS', maxArticles: 5 },
+      { url: 'https://www.ft.com/?format=rss', sourceName: 'Financial Times', category: 'BUSINESS', maxArticles: 5 },
+      { url: 'https://finance.yahoo.com/news/rssindex', sourceName: 'Yahoo Finance', category: 'BUSINESS', maxArticles: 5 },
+      { url: 'https://www.forbes.com/business/feed/', sourceName: 'Forbes Business', category: 'BUSINESS', maxArticles: 5 },
       
-      // NOTE: HEALTH and SCIENCE categories removed from RSS feeds as requested
-      // These categories will not be fetched via RSS feeds
+      // Finance News (5 articles each from last 6 hours)
+      // Covers banking, stocks, FX, money, and economy
+      { url: 'https://www.ft.com/?format=rss', sourceName: 'Financial Times', category: 'FINANCE', maxArticles: 5 },
+      { url: 'https://feeds.marketwatch.com/marketwatch/topstories/', sourceName: 'MarketWatch', category: 'FINANCE', maxArticles: 5 },
+      { url: 'https://www.cnbc.com/id/100727362/device/rss/rss.html', sourceName: 'CNBC Finance', category: 'FINANCE', maxArticles: 5 },
+      { url: 'https://finance.yahoo.com/news/rssindex', sourceName: 'Yahoo Finance', category: 'FINANCE', maxArticles: 5 },
+      { url: 'https://feeds.bbci.co.uk/news/business/rss.xml', sourceName: 'BBC Business', category: 'FINANCE', maxArticles: 5 },
       
-      // General/Others
+      // Weather News (5 articles each from last 6 hours)
+      // Covers weather forecasts, climate conditions, climate incidents, and hazard occurrences
+      { url: 'https://www.theguardian.com/uk/weather/rss', sourceName: 'The Guardian Weather', category: 'WEATHER', maxArticles: 5 },
+      { url: 'https://www.theguardian.com/environment/rss', sourceName: 'The Guardian Environment', category: 'WEATHER', maxArticles: 5 },
+      { url: 'https://feeds.bbci.co.uk/news/science_and_environment/rss.xml', sourceName: 'BBC Science & Environment', category: 'WEATHER', maxArticles: 5 },
+      
+      // Science News (5 articles each from last 6 hours)
+      // Covers scientific discoveries, NASA, space exploration, research, and scientific breakthroughs (excluding technology)
+      { url: 'https://www.nasa.gov/rss/dyn/breaking_news.rss', sourceName: 'NASA Breaking News', category: 'SCIENCE', maxArticles: 5 },
+      { url: 'https://www.sciencedaily.com/rss/all.xml', sourceName: 'Science Daily', category: 'SCIENCE', maxArticles: 5 },
+      { url: 'https://www.theguardian.com/science/rss', sourceName: 'The Guardian Science', category: 'SCIENCE', maxArticles: 5 },
+      { url: 'https://www.newscientist.com/feed/home/', sourceName: 'New Scientist', category: 'SCIENCE', maxArticles: 5 },
+      { url: 'https://www.livescience.com/feeds/all', sourceName: 'Live Science', category: 'SCIENCE', maxArticles: 5 },
+      { url: 'https://phys.org/rss-feed/', sourceName: 'Phys.org', category: 'SCIENCE', maxArticles: 5 },
+      
+      // Entertainment News (5 articles each from last 6 hours)
+      // Covers movies, TV shows, celebrities, music, and pop culture
+      { url: 'https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml', sourceName: 'BBC Entertainment', category: 'ENTERTAINMENT', maxArticles: 5 },
+      { url: 'https://www.theguardian.com/film/rss', sourceName: 'The Guardian Film', category: 'ENTERTAINMENT', maxArticles: 5 },
+      { url: 'https://www.theguardian.com/music/rss', sourceName: 'The Guardian Music', category: 'ENTERTAINMENT', maxArticles: 5 },
+      { url: 'https://www.theguardian.com/tv-and-radio/rss', sourceName: 'The Guardian TV & Radio', category: 'ENTERTAINMENT', maxArticles: 5 },
+      { url: 'https://variety.com/feed/', sourceName: 'Variety', category: 'ENTERTAINMENT', maxArticles: 5 },
+      { url: 'https://www.hollywoodreporter.com/feed/', sourceName: 'The Hollywood Reporter', category: 'ENTERTAINMENT', maxArticles: 5 },
+      { url: 'https://deadline.com/feed/', sourceName: 'Deadline', category: 'ENTERTAINMENT', maxArticles: 5 },
+      
+      // Politics News (5 articles each from last 6 hours)
+      // Covers elections, government, policy, and political news
+      { url: 'https://feeds.bbci.co.uk/news/politics/rss.xml', sourceName: 'BBC Politics', category: 'POLITICS', maxArticles: 5 },
+      { url: 'https://www.theguardian.com/politics/rss', sourceName: 'The Guardian Politics', category: 'POLITICS', maxArticles: 5 },
+      { url: 'https://www.politico.com/rss/politicopicks.xml', sourceName: 'Politico', category: 'POLITICS', maxArticles: 5 },
+      { url: 'https://thehill.com/rss/syndicator/19110', sourceName: 'The Hill', category: 'POLITICS', maxArticles: 5 },
+      { url: 'https://feeds.foxnews.com/foxnews/politics', sourceName: 'Fox News Politics', category: 'POLITICS', maxArticles: 5 },
+      { url: 'https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml', sourceName: 'NYT Politics', category: 'POLITICS', maxArticles: 5 },
+      
+      // Health News (5 articles each from last 6 hours)
+      // Covers food, hygiene, drugs, medical effects, and health news
+      { url: 'https://feeds.bbci.co.uk/news/health/rss.xml', sourceName: 'BBC Health', category: 'HEALTH', maxArticles: 5 },
+      { url: 'https://www.theguardian.com/society/health/rss', sourceName: 'The Guardian Health', category: 'HEALTH', maxArticles: 5 },
+      { url: 'https://feeds.npr.org/1128/rss.xml', sourceName: 'NPR Health', category: 'HEALTH', maxArticles: 5 },
+      { url: 'https://www.who.int/rss-feeds/news-english.xml', sourceName: 'WHO News', category: 'HEALTH', maxArticles: 5 },
+      
+      // General/Others - BBC feeds (auto-categorized by source name)
+      // Articles will be automatically categorized based on source name:
+      // - BBC Business → BUSINESS
+      // - BBC Technology → TECHNOLOGY
+      // - BBC Politics → POLITICS
+      // - BBC Sport → SPORT (handled separately above)
+      // - BBC Entertainment → ENTERTAINMENT
+      // - BBC News → OTHERS
       { url: 'https://feeds.bbci.co.uk/news/rss.xml', sourceName: 'BBC News', category: 'OTHERS' },
-      { url: 'https://www.theguardian.com/world/rss', sourceName: 'The Guardian', category: 'OTHERS' }
+      { url: 'https://feeds.bbci.co.uk/news/business/rss.xml', sourceName: 'BBC Business', category: 'OTHERS' },
+      { url: 'https://feeds.bbci.co.uk/news/technology/rss.xml', sourceName: 'BBC Technology', category: 'OTHERS' },
+      { url: 'https://feeds.bbci.co.uk/news/politics/rss.xml', sourceName: 'BBC Politics', category: 'OTHERS' },
+      { url: 'https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml', sourceName: 'BBC Entertainment', category: 'OTHERS' },
+      { url: 'https://www.theguardian.com/world/rss', sourceName: 'The Guardian', category: 'OTHERS' },
       
       // NOTE: CNN and Reuters feeds removed due to connection issues:
       // - CNN: SSL/TLS connection errors (all feeds failing)

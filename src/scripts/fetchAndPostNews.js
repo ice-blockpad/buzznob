@@ -42,7 +42,7 @@ async function fetchAndPostNews(options = {}) {
       console.log(`\n📰 Fetching ${category} news...`);
 
       try {
-        // Special handling for SPORT category
+        // Special handling for SPORT and OTHERS categories
         let fetchOptions = {
           category,
           maxArticles: maxArticlesPerCategory,
@@ -50,10 +50,16 @@ async function fetchAndPostNews(options = {}) {
           hoursAgo: 6 // Only get articles from last 6 hours
         };
         
-        // For SPORT: ESPN gets 5 per category, BBC Sport gets 5
+        // For SPORT: ESPN gets 5 per category, BBC Sport gets 10
         if (category === 'SPORT') {
           fetchOptions.maxArticles = 1000; // High limit to get all ESPN categories
-          console.log(`   📋 SPORT category: ESPN (5 per category) + BBC Sport (5)`);
+          console.log(`   📋 SPORT category: ESPN (5 per category) + BBC Sport (10)`);
+        }
+        
+        // For OTHERS: Fetch 20 articles
+        if (category === 'OTHERS') {
+          fetchOptions.maxArticles = 20;
+          console.log(`   📋 OTHERS category: 20 articles (BBC feeds will be auto-categorized)`);
         }
         
         // Fetch news from ALL RSS providers (all articles within last 6 hours)

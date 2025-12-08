@@ -437,16 +437,72 @@ class NewsService {
         });
 
         // For SPORT category: Fetch MORE articles initially (we'll filter by image later)
-        // This ensures we get 5 articles WITH images per ESPN category
-        // ESPN feeds: Fetch 15 articles (to account for some not having images)
-        // BBC Sport: Fetch 10 articles (to account for some not having images)
-        // For other categories, use maxArticles
+        // This ensures we get the target number of articles WITH images per feed
+        // Check if feed has custom maxArticles limit
         let maxPerFeed = maxArticles;
         if (category === 'SPORT') {
-          if (feed.sourceName && feed.sourceName.includes('ESPN')) {
+          if (feed.maxArticles) {
+            // Custom limit specified (e.g., ESPN Soccer = 10)
+            // Fetch 3x the limit to account for articles without images
+            maxPerFeed = feed.maxArticles * 3;
+          } else if (feed.sourceName && feed.sourceName.includes('ESPN')) {
             maxPerFeed = 15; // Fetch 15, will filter to 5 with images later
           } else if (feed.sourceName && feed.sourceName.includes('BBC')) {
             maxPerFeed = 10; // Fetch 10, will filter to 5 with images later
+          }
+        } else if (category === 'BUSINESS') {
+          if (feed.maxArticles) {
+            // Custom limit specified (e.g., 5 articles per business source)
+            // Fetch 3x the limit to account for articles without images
+            maxPerFeed = feed.maxArticles * 3;
+          }
+        } else if (category === 'WEATHER') {
+          if (feed.maxArticles) {
+            // Custom limit specified (e.g., 5 articles per weather source)
+            // Fetch 3x the limit to account for articles without images
+            maxPerFeed = feed.maxArticles * 3;
+          }
+        } else if (category === 'TECHNOLOGY') {
+          if (feed.maxArticles) {
+            // Custom limit specified (e.g., 5 articles per technology source)
+            // Fetch 3x the limit to account for articles without images
+            maxPerFeed = feed.maxArticles * 3;
+          }
+        } else if (category === 'SCIENCE') {
+          if (feed.maxArticles) {
+            // Custom limit specified (e.g., 5 articles per science source)
+            // Fetch 3x the limit to account for articles without images
+            maxPerFeed = feed.maxArticles * 3;
+          }
+        } else if (category === 'ENTERTAINMENT') {
+          if (feed.maxArticles) {
+            // Custom limit specified (e.g., 5 articles per entertainment source)
+            // Fetch 3x the limit to account for articles without images
+            maxPerFeed = feed.maxArticles * 3;
+          }
+        } else if (category === 'DEFI') {
+          if (feed.maxArticles) {
+            // Custom limit specified (e.g., 5 articles per crypto source)
+            // Fetch 3x the limit to account for articles without images
+            maxPerFeed = feed.maxArticles * 3;
+          }
+        } else if (category === 'POLITICS') {
+          if (feed.maxArticles) {
+            // Custom limit specified (e.g., 5 articles per politics source)
+            // Fetch 3x the limit to account for articles without images
+            maxPerFeed = feed.maxArticles * 3;
+          }
+        } else if (category === 'FINANCE') {
+          if (feed.maxArticles) {
+            // Custom limit specified (e.g., 5 articles per finance source)
+            // Fetch 3x the limit to account for articles without images
+            maxPerFeed = feed.maxArticles * 3;
+          }
+        } else if (category === 'HEALTH') {
+          if (feed.maxArticles) {
+            // Custom limit specified (e.g., 5 articles per health source)
+            // Fetch 3x the limit to account for articles without images
+            maxPerFeed = feed.maxArticles * 3;
           }
         }
         const articlesToProcess = feedArticles.slice(0, maxPerFeed);
@@ -491,7 +547,8 @@ class NewsService {
             author: author ? (typeof author === 'string' ? author.trim() : author.name || author) : null,
             sourceName: feed.sourceName || feed.name,
             sourceUrl: feed.url,
-            category: feed.category || 'GENERAL'
+            category: feed.category || 'GENERAL',
+            maxArticles: feed.maxArticles || null // Pass custom limit if specified
           });
         }
       } catch (error) {
