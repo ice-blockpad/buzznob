@@ -174,7 +174,6 @@ const providers = [
       
       // Technology (AI, Robotics, Tech News) - 5 articles each from last 6 hours
       { url: 'https://techcrunch.com/feed/', sourceName: 'TechCrunch', category: 'TECHNOLOGY', maxArticles: 5 },
-      { url: 'https://www.technologyreview.com/feed/', sourceName: 'MIT Technology Review', category: 'TECHNOLOGY', maxArticles: 5 },
       { url: 'https://spectrum.ieee.org/rss', sourceName: 'IEEE Spectrum', category: 'TECHNOLOGY', maxArticles: 5 },
       { url: 'https://www.theguardian.com/technology/rss', sourceName: 'The Guardian Technology', category: 'TECHNOLOGY', maxArticles: 5 },
       { url: 'https://feeds.arstechnica.com/arstechnica/index', sourceName: 'Ars Technica', category: 'TECHNOLOGY', maxArticles: 5 },
@@ -226,7 +225,6 @@ const providers = [
       { url: 'https://www.theguardian.com/film/rss', sourceName: 'The Guardian Film', category: 'ENTERTAINMENT', maxArticles: 5 },
       { url: 'https://www.theguardian.com/music/rss', sourceName: 'The Guardian Music', category: 'ENTERTAINMENT', maxArticles: 5 },
       { url: 'https://www.theguardian.com/tv-and-radio/rss', sourceName: 'The Guardian TV & Radio', category: 'ENTERTAINMENT', maxArticles: 5 },
-      { url: 'https://variety.com/feed/', sourceName: 'Variety', category: 'ENTERTAINMENT', maxArticles: 5 },
       { url: 'https://www.hollywoodreporter.com/feed/', sourceName: 'The Hollywood Reporter', category: 'ENTERTAINMENT', maxArticles: 5 },
       { url: 'https://deadline.com/feed/', sourceName: 'Deadline', category: 'ENTERTAINMENT', maxArticles: 5 },
       
@@ -235,7 +233,6 @@ const providers = [
       { url: 'https://feeds.bbci.co.uk/news/politics/rss.xml', sourceName: 'BBC Politics', category: 'POLITICS', maxArticles: 5 },
       { url: 'https://www.theguardian.com/politics/rss', sourceName: 'The Guardian Politics', category: 'POLITICS', maxArticles: 5 },
       { url: 'https://www.politico.com/rss/politicopicks.xml', sourceName: 'Politico', category: 'POLITICS', maxArticles: 5 },
-      { url: 'https://thehill.com/rss/syndicator/19110', sourceName: 'The Hill', category: 'POLITICS', maxArticles: 5 },
       { url: 'https://feeds.foxnews.com/foxnews/politics', sourceName: 'Fox News Politics', category: 'POLITICS', maxArticles: 5 },
       { url: 'https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml', sourceName: 'NYT Politics', category: 'POLITICS', maxArticles: 5 },
       
