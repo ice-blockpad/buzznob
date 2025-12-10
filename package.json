@@ -26,7 +26,10 @@
     "news:fetch": "node src/scripts/fetchAndPostNews.js",
     "news:fetch:dry-run": "node src/scripts/fetchAndPostNews.js --dry-run",
     "news:test-rss": "node src/scripts/testRSSFeeds.js",
-    "news:test-rss-recent": "node src/scripts/testRSSFeedsRecent.js"
+    "news:test-rss-recent": "node src/scripts/testRSSFeedsRecent.js",
+    "articles:delete-all": "node src/scripts/deleteAllArticlesInteractive.js",
+    "articles:delete-all-force": "node src/scripts/deleteAllArticles.js",
+    "articles:delete-pending": "node src/scripts/deletePendingArticles.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.490.0",

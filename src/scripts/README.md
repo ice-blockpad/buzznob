@@ -1,4 +1,53 @@
-# Test Scripts Documentation
+# Scripts Documentation
+
+## Database Management Scripts
+
+### `deleteAllArticles.js` - Delete All Articles (Non-Interactive)
+**Removes ALL articles and related data from the database**
+
+```bash
+node src/scripts/deleteAllArticles.js
+```
+
+**What it deletes:**
+- All articles (published, pending, rejected)
+- All user reading history (ReadArticle)
+- All article-related activities (UserActivity)
+
+**Features:**
+- Shows statistics before deletion
+- Deletes all related data
+- Shows verification after deletion
+- Provides deletion summary
+- ⚠️ **WARNING:** No confirmation prompt - deletes immediately!
+
+---
+
+### `deleteAllArticlesInteractive.js` - Delete All Articles (Interactive) ⭐ **RECOMMENDED**
+**Safer version with confirmation prompts**
+
+```bash
+node src/scripts/deleteAllArticlesInteractive.js
+```
+
+**Features:**
+- Shows statistics before deletion
+- Asks for confirmation (twice for safety)
+- Requires typing "DELETE ALL" to proceed
+- Shows detailed progress
+- Provides deletion summary
+- ✅ **SAFER:** Requires explicit confirmation
+
+---
+
+### `deletePendingArticles.js` - Delete Pending Articles Only
+**Removes only articles with 'pending' status**
+
+```bash
+node src/scripts/deletePendingArticles.js
+```
+
+---
 
 ## Main Test Scripts
 
@@ -54,22 +103,37 @@ node src/scripts/testArticleProcessing.js --all
 
 ### Most Common Tasks
 
-**1. Test article processing (image + author extraction):**
+**1. Delete ALL articles (with confirmation):**
+```bash
+node src/scripts/deleteAllArticlesInteractive.js
+```
+
+**2. Delete ALL articles (no confirmation - BE CAREFUL!):**
+```bash
+node src/scripts/deleteAllArticles.js
+```
+
+**3. Delete only pending articles:**
+```bash
+node src/scripts/deletePendingArticles.js
+```
+
+**4. Test article processing (image + author extraction):**
 ```bash
 node src/scripts/testArticleProcessing.js SPORT
 ```
 
-**2. Create test article in database:**
+**5. Create test article in database:**
 ```bash
 node src/scripts/testArticleProcessing.js SPORT --create
 ```
 
-**3. Test all ESPN categories:**
+**6. Test all ESPN categories:**
 ```bash
 node src/scripts/testArticleProcessing.js --all
 ```
 
-**4. Test specific category:**
+**7. Test specific category:**
 ```bash
 node src/scripts/testArticleProcessing.js TECHNOLOGY --create
 ```

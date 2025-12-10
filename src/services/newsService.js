@@ -210,12 +210,12 @@ class NewsService {
           'TECHNOLOGY': 'technology',
           'FINANCE': 'business',
           'BUSINESS': 'business',
-          'POLITICS': 'top',
+          'POLITICS': 'politics',
           'SPORT': 'sports',
           'ENTERTAINMENT': 'entertainment',
           'HEALTH': 'health',
           'SCIENCE': 'science',
-          'WEATHER': 'top',
+          'WEATHER': 'environment',
           'OTHERS': 'top'
         };
         params.category = categoryMap[category] || 'top';
@@ -226,34 +226,34 @@ class NewsService {
           'TECHNOLOGY': 'technology',
           'FINANCE': 'business',
           'BUSINESS': 'business',
-          'POLITICS': null,
+          'POLITICS': 'politics',
           'SPORT': 'sports',
           'ENTERTAINMENT': 'entertainment',
           'HEALTH': 'health',
           'SCIENCE': 'science',
-          'WEATHER': null,
-          'OTHERS': null
+          'WEATHER': 'environment',
+          'OTHERS': 'general'
         };
         if (categoryMap[category]) {
           params.category = categoryMap[category];
         }
       } else if (provider.name === 'GNews API') {
-        // GNews uses 'q' for search terms
-        const searchTerms = {
-          'DEFI': 'defi OR cryptocurrency OR bitcoin',
-          'TECHNOLOGY': 'technology OR tech',
-          'FINANCE': 'finance OR banking',
-          'BUSINESS': 'business OR company',
-          'POLITICS': 'politics OR government',
-          'SPORT': 'sports OR football',
-          'ENTERTAINMENT': 'entertainment OR movie',
-          'HEALTH': 'health OR medical',
-          'SCIENCE': 'science OR research',
-          'WEATHER': 'weather OR climate',
-          'OTHERS': null
+        // GNews API category mapping (uses 'topic' parameter)
+        const categoryMap = {
+          'DEFI': 'technology',
+          'TECHNOLOGY': 'technology',
+          'FINANCE': 'business',
+          'BUSINESS': 'business',
+          'POLITICS': 'nation',
+          'SPORT': 'sports',
+          'ENTERTAINMENT': 'entertainment',
+          'HEALTH': 'health',
+          'SCIENCE': 'science',
+          'WEATHER': 'world',
+          'OTHERS': 'general'
         };
-        if (searchTerms[category]) {
-          params.q = searchTerms[category];
+        if (categoryMap[category]) {
+          params.topic = categoryMap[category];
         }
       }
     }
@@ -279,8 +279,12 @@ class NewsService {
         // NewsData.io format
         articles.push(...response.data.results);
       } else if (response.data && response.data.news) {
-        // Currents API format
-        articles.push(...response.data.news);
+        // Currents API format (also check for articles array)
+        const newsItems = response.data.news || response.data.articles || [];
+        articles.push(...newsItems);
+      } else if (response.data && response.data.articles && provider.name === 'GNews API') {
+        // GNews API format
+        articles.push(...response.data.articles);
       } else if (response.data && Array.isArray(response.data)) {
         // Direct array format
         articles.push(...response.data);

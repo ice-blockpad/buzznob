@@ -43,6 +43,7 @@ router.get('/trending', optionalAuth, async (req, res) => {
           imageData: true,
           imageType: true,
           createdAt: true,
+          originalPublishedAt: true,
           author: {
             select: {
               id: true,
@@ -238,6 +239,7 @@ router.get('/', optionalAuth, async (req, res) => {
           imageData: true,
           imageType: true,
           createdAt: true,
+          originalPublishedAt: true,
           author: {
             select: {
               id: true,
@@ -270,6 +272,7 @@ router.get('/', optionalAuth, async (req, res) => {
           imageData: true,
           imageType: true,
           createdAt: true,
+          originalPublishedAt: true,
           author: {
             select: {
               id: true,
@@ -463,6 +466,7 @@ router.get('/search', optionalAuth, async (req, res) => {
           imageData: true,
           imageType: true,
           createdAt: true,
+          originalPublishedAt: true,
           author: {
             select: {
               id: true,
@@ -623,7 +627,8 @@ router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
           imageType: true,
           status: true,
           createdAt: true,
-          publishedAt: true
+          publishedAt: true,
+          originalPublishedAt: true
         }
       });
     } else {
@@ -648,7 +653,8 @@ router.get('/creator/:creatorId', optionalAuth, async (req, res) => {
           imageType: true,
           status: true,
           createdAt: true,
-          publishedAt: true
+          publishedAt: true,
+          originalPublishedAt: true
         }
       });
       totalCount = await prisma.article.count({ where: baseWhere });
@@ -708,6 +714,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
         imageType: true,
         createdAt: true,
         originalAuthor: true,
+        originalPublishedAt: true, // ✅ FIXED - Show original publication date
         author: {
           select: {
             id: true,
@@ -1229,25 +1236,26 @@ router.get('/trending', optionalAuth, async (req, res) => {
         }
       },
       take: limit,
-      select: {
-        id: true,
-        title: true,
-        content: true,
-        category: true,
-        sourceUrl: true,
-        sourceName: true,
-        pointsValue: true,
-        isFeatured: true,
-        imageUrl: true,
-        imageData: true,
-        imageType: true,
-        createdAt: true,
-        _count: {
-          select: {
-            activities: true
+        select: {
+          id: true,
+          title: true,
+          content: true,
+          category: true,
+          sourceUrl: true,
+          sourceName: true,
+          pointsValue: true,
+          isFeatured: true,
+          imageUrl: true,
+          imageData: true,
+          imageType: true,
+          createdAt: true,
+          originalPublishedAt: true,
+          _count: {
+            select: {
+              activities: true
+            }
           }
         }
-      }
     });
 
     res.json({

@@ -6,7 +6,7 @@
 
 const { prisma } = require('../config/database');
 const axios = require('axios');
-const articleScraper = require('./articleScraper');
+// articleScraper removed - no more web scraping
 
 class ArticleProcessor {
   /**
@@ -140,7 +140,8 @@ class ArticleProcessor {
   }
 
   /**
-   * Clean and format article content
+   * Clean and format article content - PREVIEW ONLY (Google Play Compliant)
+   * CRITICAL: Limits content to 150 characters to comply with copyright laws
    */
   cleanContent(content) {
     if (!content) return '';
@@ -148,22 +149,17 @@ class ArticleProcessor {
     // Remove HTML tags but preserve line breaks
     let cleaned = content
       .replace(/<[^>]+>/g, ' ') // Remove HTML tags
-      .replace(/\s*\.\.\.\s*\[\+\d+\s*chars?\]/gi, '') // Remove truncated indicators like "... [+6712 chars]"
-      .replace(/\s*\[Note:.*?\]/gi, '') // Remove notes like "[Note: This is a summary...]"
+      .replace(/\s*\.\.\.\s*\[\+\d+\s*chars?\]/gi, '') // Remove truncated indicators
+      .replace(/\s*\[Note:.*?\]/gi, '') // Remove notes
       .replace(/\s*Source:\s*https?:\/\/[^\s]+/gi, '') // Remove source URLs
       .replace(/\s*Read the full article at:\s*https?:\/\/[^\s]+/gi, '') // Remove "Read the full article" notes
       .replace(/\s*\[Read more.*?\]/gi, '') // Remove "[Read more...]" links
-      .replace(/\s*\[Article truncated.*?\]/gi, '') // Remove truncation notes
       .replace(/\s+/g, ' ') // Normalize whitespace
       .trim();
 
-    // If content is very short, it might be just a summary
-    // We'll keep it as is since news APIs typically only provide summaries
-    // The sourceUrl will allow users to read the full article
-
-    // Limit content length (optional - adjust as needed)
-    // Increased to 50000 to allow full articles
-    const maxLength = 50000;
+    // CRITICAL: Limit to 150 characters (Google Play compliant preview)
+    // Users MUST click through to publisher site to read full article
+    const maxLength = 150;
     if (cleaned.length > maxLength) {
       cleaned = cleaned.substring(0, maxLength) + '...';
     }
@@ -223,21 +219,15 @@ class ArticleProcessor {
         };
       }
 
-      // Get enhanced content (try to fetch full content, ensure minimum 1000 chars)
-      console.log(`📄 Enhancing content for: ${newsArticle.title.substring(0, 50)}...`);
-      const enhancedContent = await articleScraper.enhanceArticleContent({
-        url: newsArticle.url,
-        content: newsArticle.content,
-        description: newsArticle.description
-      });
-
-      // Clean and format content
-      const cleanedContent = this.cleanContent(enhancedContent);
+      // Clean and format content - PREVIEW ONLY (150 chars max)
+      // NO web scraping - use only what's provided by RSS/API
+      const rawContent = newsArticle.content || newsArticle.description || '';
+      const cleanedContent = this.cleanContent(rawContent);
       
-      // Check minimum length (at least 1000 characters preferred, but allow shorter if that's all we have)
-      if (cleanedContent.length < 200) {
-        // Content too short, skip
-        console.log(`⏭️  Skipping article with insufficient content: ${newsArticle.title.substring(0, 50)}... (${cleanedContent.length} chars)`);
+      // Check minimum length (at least 30 characters for a meaningful preview)
+      if (cleanedContent.length < 30) {
+        // Content too short for a preview, skip
+        console.log(`⏭️  Skipping article with insufficient preview: ${newsArticle.title.substring(0, 50)}... (${cleanedContent.length} chars)`);
         return {
           success: false,
           reason: 'insufficient_content',
@@ -245,50 +235,21 @@ class ArticleProcessor {
         };
       }
 
-      // Log if content is less than preferred minimum
-      if (cleanedContent.length < 1000) {
-        console.log(`⚠️  Content shorter than preferred (${cleanedContent.length} chars, preferred: 1000+): ${newsArticle.title.substring(0, 50)}...`);
-      }
+      console.log(`✅ Preview ready (${cleanedContent.length} chars): ${newsArticle.title.substring(0, 50)}...`)
 
-      // Process image
+      // Process image - ONLY use RSS/API provided images (NO scraping)
       let imageUrl = await this.processImage(newsArticle.imageUrl);
       
-      // Get author (from RSS or article page)
+      // Get author - ONLY from RSS/API (NO scraping)
       let author = newsArticle.author;
       
-      // SKIP ARTICLES WITHOUT IMAGES (as per requirement)
-      // For Guardian: Always fetch from article page (RSS images are too small - 3-6 KB)
-      // For other sources: Only fetch from article page if no image in RSS
+      // Get source name for categorization
       const sourceName = newsArticle.sourceName || '';
-      const isGuardian = sourceName.toLowerCase().includes('guardian');
       
-      if (newsArticle.url) {
-        const articleScraper = require('./articleScraper');
-        if (isGuardian) {
-          // Always fetch from article page for Guardian (better quality)
-          console.log(`🖼️  Guardian article - fetching high-quality image from article page: ${newsArticle.url.substring(0, 60)}...`);
-          const fetchedImageUrl = await articleScraper.fetchImageFromURL(newsArticle.url);
-          if (fetchedImageUrl) {
-            imageUrl = fetchedImageUrl;
-            console.log(`✅ Found high-quality image: ${imageUrl}`);
-          } else if (!imageUrl) {
-            // Fallback to RSS image if article page fetch fails
-            console.log(`⚠️  Could not fetch from article page, using RSS image`);
-          }
-        } else if (!imageUrl) {
-          // For other sources, only fetch if no image in RSS
-          console.log(`🖼️  No image in RSS, fetching from article page: ${newsArticle.url.substring(0, 60)}...`);
-          const fetchedImageUrl = await articleScraper.fetchImageFromURL(newsArticle.url);
-          if (fetchedImageUrl) {
-            imageUrl = fetchedImageUrl;
-            console.log(`✅ Found image: ${imageUrl}`);
-          }
-        }
-      }
-      
-      // Skip article if still no image
+      // Skip article if no image in RSS/API
+      // CRITICAL: We do NOT scrape images from article pages (copyright infringement)
       if (!imageUrl) {
-        console.log(`⏭️  Skipping article without image: ${newsArticle.title.substring(0, 50)}...`);
+        console.log(`⏭️  Skipping article without RSS image: ${newsArticle.title.substring(0, 50)}...`);
         return {
           success: false,
           reason: 'no_image',
@@ -296,19 +257,7 @@ class ArticleProcessor {
         };
       }
       
-      // Fetch author from article page if not in RSS
-      if (!author && newsArticle.url) {
-        const articleScraper = require('./articleScraper');
-        const isBBC = newsArticle.url.toLowerCase().includes('bbc.com') || newsArticle.url.toLowerCase().includes('bbc.co.uk');
-        console.log(`👤 Fetching author from article page: ${newsArticle.url.substring(0, 60)}...${isBBC ? ' (BBC article)' : ''}`);
-        const fetchedAuthor = await articleScraper.fetchAuthorFromURL(newsArticle.url);
-        if (fetchedAuthor) {
-          author = fetchedAuthor;
-          console.log(`✅ Found author: ${author}${isBBC ? ' (from BBC article page)' : ''}`);
-        } else {
-          console.log(`⚠️  No author found on article page${isBBC ? ' (BBC article - may not have author)' : ''}`);
-        }
-      }
+      console.log(`✅ Using RSS/API image: ${imageUrl.substring(0, 60)}...`)
 
       // Get system admin ID (optional - can be null)
       const authorId = await this.getSystemAdminId();
@@ -316,7 +265,6 @@ class ArticleProcessor {
       // Determine category
       // Auto-categorize based on source name if it's more specific than feed category
       let category = newsArticle.category || 'GENERAL';
-      // sourceName already declared above for image processing
       
       // Override category based on source name for better accuracy
       if (sourceName.includes('BBC Business')) {

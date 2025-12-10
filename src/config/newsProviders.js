@@ -4,54 +4,21 @@
  */
 
 const providers = [
-  // Priority 1: NewsAPI.org (Disabled - Using RSS feeds only)
-  {
-    name: 'NewsAPI.org',
-    type: 'api',
-    priority: 1,
-    enabled: false, // Disabled - Using RSS feeds only
-    apiKey: process.env.NEWSAPI_KEY || '',
-    baseUrl: 'https://newsapi.org/v2',
-    dailyLimit: parseInt(process.env.NEWSAPI_LIMIT) || 1000,
-    requestsPerCall: 100,
-    supportsDateFilter: true, // Supports 'from' and 'to' parameters
-    endpoints: {
-      topHeadlines: '/top-headlines',
-      everything: '/everything'
-    },
-    params: {
-      apiKey: process.env.NEWSAPI_KEY || '',
-      sortBy: 'publishedAt',
-      language: 'en'
-    },
-    categoryMap: {
-      'DEFI': 'technology',
-      'TECHNOLOGY': 'technology',
-      'FINANCE': 'business',
-      'BUSINESS': 'business',
-      'POLITICS': 'general',
-      'SPORT': 'sports',
-      'ENTERTAINMENT': 'entertainment',
-      'HEALTH': 'health',
-      'SCIENCE': 'science',
-      'WEATHER': 'general',
-      'OTHERS': 'general'
-    }
-  },
-
-  // Priority 2: NewsData.io (Disabled - Using RSS feeds only)
+  // Priority 1: NewsData.io (LEGAL - Affordable API)
+  // Sign up at: https://newsdata.io
+  // Free: 200 requests/day | Paid: $10/month for 1000 requests/day
   {
     name: 'NewsData.io',
     type: 'api',
-    priority: 2,
-    enabled: false, // Disabled - Using RSS feeds only
+    priority: 1,
+    enabled: true, // ENABLED - Legal news API
     apiKey: process.env.NEWSDATA_KEY || '',
     baseUrl: 'https://newsdata.io/api/1',
     dailyLimit: parseInt(process.env.NEWSDATA_LIMIT) || 200,
     requestsPerCall: 10,
-    supportsDateFilter: true, // Supports date filtering
+    supportsDateFilter: true,
     endpoints: {
-      latest: '/latest'
+      latest: '/news'
     },
     params: {
       apikey: process.env.NEWSDATA_KEY || '',
@@ -62,27 +29,66 @@ const providers = [
       'TECHNOLOGY': 'technology',
       'FINANCE': 'business',
       'BUSINESS': 'business',
-      'POLITICS': 'top',
+      'POLITICS': 'politics',
       'SPORT': 'sports',
       'ENTERTAINMENT': 'entertainment',
       'HEALTH': 'health',
       'SCIENCE': 'science',
-      'WEATHER': 'top',
+      'WEATHER': 'environment',
       'OTHERS': 'top'
     }
   },
 
-  // Priority 3: Currents API (Disabled - Using RSS feeds only)
+  // Priority 2: GNews API (LEGAL - Budget-friendly)
+  // Sign up at: https://gnews.io
+  // Free: 100 requests/day | Paid: $9/month for 10,000 requests/day
+  {
+    name: 'GNews API',
+    type: 'api',
+    priority: 2,
+    enabled: true, // ENABLED - Legal news API
+    apiKey: process.env.GNEWS_API_KEY || '',
+    baseUrl: 'https://gnews.io/api/v4',
+    dailyLimit: parseInt(process.env.GNEWS_LIMIT) || 100,
+    requestsPerCall: 10,
+    supportsDateFilter: true,
+    endpoints: {
+      topHeadlines: '/top-headlines',
+      search: '/search'
+    },
+    params: {
+      token: process.env.GNEWS_API_KEY || '',
+      lang: 'en',
+      country: 'us'
+    },
+    categoryMap: {
+      'DEFI': 'technology',
+      'TECHNOLOGY': 'technology',
+      'FINANCE': 'business',
+      'BUSINESS': 'business',
+      'POLITICS': 'nation',
+      'SPORT': 'sports',
+      'ENTERTAINMENT': 'entertainment',
+      'HEALTH': 'health',
+      'SCIENCE': 'science',
+      'WEATHER': 'world',
+      'OTHERS': 'general'
+    }
+  },
+
+  // Priority 3: Currents API (LEGAL - Good free tier)
+  // Sign up at: https://currentsapi.services
+  // Free: 600 requests/day | Paid: $12/month for unlimited
   {
     name: 'Currents API',
     type: 'api',
     priority: 3,
-    enabled: false, // Disabled - Using RSS feeds only
+    enabled: true, // ENABLED - Legal news API
     apiKey: process.env.CURRENTS_API_KEY || '',
     baseUrl: 'https://api.currentsapi.services/v1',
-    dailyLimit: parseInt(process.env.CURRENTS_LIMIT) || 20,
+    dailyLimit: parseInt(process.env.CURRENTS_LIMIT) || 600,
     requestsPerCall: 20,
-    supportsDateFilter: false, // Does not support date filtering
+    supportsDateFilter: false,
     endpoints: {
       latest: '/latest-news'
     },
@@ -95,35 +101,36 @@ const providers = [
       'TECHNOLOGY': 'technology',
       'FINANCE': 'business',
       'BUSINESS': 'business',
-      'POLITICS': null,
+      'POLITICS': 'politics',
       'SPORT': 'sports',
       'ENTERTAINMENT': 'entertainment',
       'HEALTH': 'health',
       'SCIENCE': 'science',
-      'WEATHER': null,
-      'OTHERS': null
+      'WEATHER': 'environment',
+      'OTHERS': 'general'
     }
   },
 
-  // Priority 4: GNews API (Disabled - Using RSS feeds only)
+  // Priority 4: NewsAPI.org (Disabled - Requires $449/month Business plan)
+  // NOTE: Free tier is for DEVELOPMENT ONLY, NOT for production apps
   {
-    name: 'GNews API',
+    name: 'NewsAPI.org',
     type: 'api',
     priority: 4,
-    enabled: false, // Disabled - Using RSS feeds only
-    apiKey: process.env.GNEWS_API_KEY || '',
-    baseUrl: 'https://gnews.io/api/v4',
-    dailyLimit: parseInt(process.env.GNEWS_LIMIT) || 100,
-    requestsPerCall: 10,
-    supportsDateFilter: false, // Does not support date filtering
+    enabled: false, // Disabled - Too expensive ($449/month)
+    apiKey: process.env.NEWSAPI_KEY || '',
+    baseUrl: 'https://newsapi.org/v2',
+    dailyLimit: parseInt(process.env.NEWSAPI_LIMIT) || 1000,
+    requestsPerCall: 100,
+    supportsDateFilter: true,
     endpoints: {
       topHeadlines: '/top-headlines',
-      search: '/search'
+      everything: '/everything'
     },
     params: {
-      token: process.env.GNEWS_API_KEY || '',
-      lang: 'en',
-      country: 'us'
+      apiKey: process.env.NEWSAPI_KEY || '',
+      sortBy: 'publishedAt',
+      language: 'en'
     },
     categoryMap: {
       'DEFI': 'technology',
@@ -155,14 +162,16 @@ const providers = [
     supportsDateFilter: true // Can filter by pubDate after fetching
   },
 
-  // Priority 6: Direct RSS Feeds (Always available, no limits)
+  // Priority 6: Direct RSS Feeds (FREE - Fallback when APIs exhausted)
+  // LEGAL USAGE: Show PREVIEW ONLY (150 chars max), require click-through to full article
   {
     name: 'rssFeeds',
     type: 'rss-direct',
     priority: 6,
     enabled: true,
     dailyLimit: Infinity,
-    supportsDateFilter: true, // Can filter by pubDate after fetching
+    supportsDateFilter: true,
+    previewOnly: true, // CRITICAL: Only show preview, not full content
     feeds: [
       // Cryptocurrency News (5 articles each from last 6 hours)
       // Covers Bitcoin, Ethereum, DeFi, blockchain, and all cryptocurrency news
