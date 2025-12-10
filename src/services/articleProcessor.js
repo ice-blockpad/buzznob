@@ -259,8 +259,9 @@ class ArticleProcessor {
       
       console.log(`✅ Using RSS/API image: ${imageUrl.substring(0, 60)}...`)
 
-      // Get system admin ID (optional - can be null)
-      const authorId = await this.getSystemAdminId();
+      // API/RSS articles should NOT have an authorId (they're system-generated, not user-created)
+      // Only manually created articles should have an authorId
+      const authorId = null;
 
       // Determine category
       // Auto-categorize based on source name if it's more specific than feed category
